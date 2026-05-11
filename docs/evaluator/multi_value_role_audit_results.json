@@ -1,0 +1,504 @@
+{
+  "audit_name": "multi_value_role_audit",
+  "normalization": [
+    "Unicode NFKC",
+    "strip whitespace",
+    "collapse whitespace"
+  ],
+  "generated_at_note": "deterministic local audit; no data files modified",
+  "datasets": [
+    "ChFinAnn-Doc2EDAG",
+    "DuEE-Fin-dev500",
+    "DocFEE-dev1000"
+  ],
+  "splits": [
+    "train",
+    "dev",
+    "test"
+  ],
+  "results": [
+    {
+      "dataset": "ChFinAnn-Doc2EDAG",
+      "split": "train",
+      "document_count": 25632,
+      "event_record_count": 38088,
+      "canonical_raw_role_value_unit_count": 229848,
+      "canonical_unique_role_value_unit_count": 229848,
+      "fixed_slot_non_empty_unit_count": 229848,
+      "fixed_slot_status": "ordered_schema_arguments",
+      "fixed_slot_note": "ordered schema roles available; one non-empty role slot counted at most once",
+      "multi_value_role_occurrence_count": 0,
+      "documents_with_multi_value_role": 0,
+      "records_with_multi_value_role": 0,
+      "multi_value_extra_units_over_fixed_slot_representation": 0,
+      "top_event_type_role_pairs_by_extra_units": [],
+      "examples": []
+    },
+    {
+      "dataset": "ChFinAnn-Doc2EDAG",
+      "split": "dev",
+      "document_count": 3204,
+      "event_record_count": 4987,
+      "canonical_raw_role_value_unit_count": 30588,
+      "canonical_unique_role_value_unit_count": 30588,
+      "fixed_slot_non_empty_unit_count": 30588,
+      "fixed_slot_status": "ordered_schema_arguments",
+      "fixed_slot_note": "ordered schema roles available; one non-empty role slot counted at most once",
+      "multi_value_role_occurrence_count": 0,
+      "documents_with_multi_value_role": 0,
+      "records_with_multi_value_role": 0,
+      "multi_value_extra_units_over_fixed_slot_representation": 0,
+      "top_event_type_role_pairs_by_extra_units": [],
+      "examples": []
+    },
+    {
+      "dataset": "ChFinAnn-Doc2EDAG",
+      "split": "test",
+      "document_count": 3204,
+      "event_record_count": 4749,
+      "canonical_raw_role_value_unit_count": 29435,
+      "canonical_unique_role_value_unit_count": 29435,
+      "fixed_slot_non_empty_unit_count": 29435,
+      "fixed_slot_status": "ordered_schema_arguments",
+      "fixed_slot_note": "ordered schema roles available; one non-empty role slot counted at most once",
+      "multi_value_role_occurrence_count": 0,
+      "documents_with_multi_value_role": 0,
+      "records_with_multi_value_role": 0,
+      "multi_value_extra_units_over_fixed_slot_representation": 0,
+      "top_event_type_role_pairs_by_extra_units": [],
+      "examples": []
+    },
+    {
+      "dataset": "DuEE-Fin-dev500",
+      "split": "train",
+      "document_count": 6515,
+      "event_record_count": 8824,
+      "canonical_raw_role_value_unit_count": 45425,
+      "canonical_unique_role_value_unit_count": 45395,
+      "fixed_slot_non_empty_unit_count": 42969,
+      "fixed_slot_status": "ordered_schema_role_list",
+      "fixed_slot_note": "ordered schema roles available; one non-empty role slot counted at most once",
+      "multi_value_role_occurrence_count": 1559,
+      "documents_with_multi_value_role": 1258,
+      "records_with_multi_value_role": 1459,
+      "multi_value_extra_units_over_fixed_slot_representation": 2426,
+      "top_event_type_role_pairs_by_extra_units": [
+        {
+          "event_type": "股份回购",
+          "role": "每股交易价格",
+          "extra_units": 379
+        },
+        {
+          "event_type": "企业融资",
+          "role": "投资方",
+          "extra_units": 339
+        },
+        {
+          "event_type": "股东减持",
+          "role": "减持方",
+          "extra_units": 248
+        },
+        {
+          "event_type": "中标",
+          "role": "中标公司",
+          "extra_units": 239
+        },
+        {
+          "event_type": "高管变动",
+          "role": "高管职位",
+          "extra_units": 215
+        },
+        {
+          "event_type": "质押",
+          "role": "质押方",
+          "extra_units": 177
+        },
+        {
+          "event_type": "高管变动",
+          "role": "变动后职位",
+          "extra_units": 122
+        },
+        {
+          "event_type": "解除质押",
+          "role": "质押方",
+          "extra_units": 63
+        },
+        {
+          "event_type": "中标",
+          "role": "中标标的",
+          "extra_units": 57
+        },
+        {
+          "event_type": "股份回购",
+          "role": "交易金额",
+          "extra_units": 54
+        }
+      ],
+      "examples": [
+        {
+          "document_id": "079cd8cfdb6013ced33623c26840bc15",
+          "record_id": "0",
+          "event_type": "被约谈",
+          "role": "约谈机构",
+          "values": [
+            "北京市人力社保局",
+            "市商务局",
+            "市委政法委",
+            "市市场监管局四部门"
+          ],
+          "extra_units": 3
+        },
+        {
+          "document_id": "e55ffdd8af2e77df58b3020c8ee5502a",
+          "record_id": "1",
+          "event_type": "企业收购",
+          "role": "被收购方",
+          "values": [
+            "Dark Sky",
+            "NextVR",
+            "Voysis"
+          ],
+          "extra_units": 2
+        },
+        {
+          "document_id": "c28f42c9a6e2e32aaa5c32c5800fdff9",
+          "record_id": "0",
+          "event_type": "股份回购",
+          "role": "回购股份数量",
+          "values": [
+            "40万",
+            "9.3-9.42港元"
+          ],
+          "extra_units": 1
+        },
+        {
+          "document_id": "6b4c714c9a3d9a4e9394f589966f6cf5",
+          "record_id": "0",
+          "event_type": "股份回购",
+          "role": "交易金额",
+          "values": [
+            "不低于人民币20,000.00万元",
+            "不超过人民币30,000.00万元"
+          ],
+          "extra_units": 1
+        },
+        {
+          "document_id": "6b4c714c9a3d9a4e9394f589966f6cf5",
+          "record_id": "1",
+          "event_type": "股份回购",
+          "role": "每股交易价格",
+          "values": [
+            "最低成交价为9.40元",
+            "最高成交价为12.70元"
+          ],
+          "extra_units": 1
+        }
+      ]
+    },
+    {
+      "dataset": "DuEE-Fin-dev500",
+      "split": "dev",
+      "document_count": 500,
+      "event_record_count": 674,
+      "canonical_raw_role_value_unit_count": 3466,
+      "canonical_unique_role_value_unit_count": 3462,
+      "fixed_slot_non_empty_unit_count": 3296,
+      "fixed_slot_status": "ordered_schema_role_list",
+      "fixed_slot_note": "ordered schema roles available; one non-empty role slot counted at most once",
+      "multi_value_role_occurrence_count": 119,
+      "documents_with_multi_value_role": 91,
+      "records_with_multi_value_role": 107,
+      "multi_value_extra_units_over_fixed_slot_representation": 166,
+      "top_event_type_role_pairs_by_extra_units": [
+        {
+          "event_type": "股份回购",
+          "role": "每股交易价格",
+          "extra_units": 26
+        },
+        {
+          "event_type": "企业融资",
+          "role": "投资方",
+          "extra_units": 25
+        },
+        {
+          "event_type": "中标",
+          "role": "中标公司",
+          "extra_units": 19
+        },
+        {
+          "event_type": "质押",
+          "role": "质押方",
+          "extra_units": 15
+        },
+        {
+          "event_type": "股东减持",
+          "role": "减持方",
+          "extra_units": 15
+        },
+        {
+          "event_type": "高管变动",
+          "role": "高管职位",
+          "extra_units": 7
+        },
+        {
+          "event_type": "高管变动",
+          "role": "变动后职位",
+          "extra_units": 7
+        },
+        {
+          "event_type": "中标",
+          "role": "中标标的",
+          "extra_units": 7
+        },
+        {
+          "event_type": "股份回购",
+          "role": "交易金额",
+          "extra_units": 6
+        },
+        {
+          "event_type": "被约谈",
+          "role": "约谈机构",
+          "extra_units": 5
+        }
+      ],
+      "examples": [
+        {
+          "document_id": "9fddaaf106878e78f789db03820d1425",
+          "record_id": "2",
+          "event_type": "质押",
+          "role": "质押方",
+          "values": [
+            "邵健伟",
+            "邵健锋"
+          ],
+          "extra_units": 1
+        },
+        {
+          "document_id": "f4549686f316cca57d5a3e4cbd6344ea",
+          "record_id": "3",
+          "event_type": "高管变动",
+          "role": "高管职位",
+          "values": [
+            "总经理",
+            "法定代表人"
+          ],
+          "extra_units": 1
+        },
+        {
+          "document_id": "c9fdf1bffbe95e8750a3dbaa904c5000",
+          "record_id": "1",
+          "event_type": "高管变动",
+          "role": "高管职位",
+          "values": [
+            "公司秘书",
+            "董事会秘书"
+          ],
+          "extra_units": 1
+        },
+        {
+          "document_id": "f613c903696b6916f672030a2bc7c773",
+          "record_id": "0",
+          "event_type": "企业融资",
+          "role": "投资方",
+          "values": [
+            "倚锋资本",
+            "普华资本",
+            "联新资本"
+          ],
+          "extra_units": 2
+        },
+        {
+          "document_id": "cc64353bb8ab6d04a263bcb7b9656cbb",
+          "record_id": "0",
+          "event_type": "质押",
+          "role": "质权方",
+          "values": [
+            "东莞信托",
+            "四川信托",
+            "安信信托",
+            "民生信托",
+            "长安信托"
+          ],
+          "extra_units": 4
+        }
+      ]
+    },
+    {
+      "dataset": "DuEE-Fin-dev500",
+      "split": "test",
+      "document_count": 1171,
+      "event_record_count": 1533,
+      "canonical_raw_role_value_unit_count": 7915,
+      "canonical_unique_role_value_unit_count": 7907,
+      "fixed_slot_non_empty_unit_count": 7533,
+      "fixed_slot_status": "ordered_schema_role_list",
+      "fixed_slot_note": "ordered schema roles available; one non-empty role slot counted at most once",
+      "multi_value_role_occurrence_count": 264,
+      "documents_with_multi_value_role": 219,
+      "records_with_multi_value_role": 246,
+      "multi_value_extra_units_over_fixed_slot_representation": 374,
+      "top_event_type_role_pairs_by_extra_units": [
+        {
+          "event_type": "股份回购",
+          "role": "每股交易价格",
+          "extra_units": 83
+        },
+        {
+          "event_type": "企业融资",
+          "role": "投资方",
+          "extra_units": 50
+        },
+        {
+          "event_type": "质押",
+          "role": "质押方",
+          "extra_units": 39
+        },
+        {
+          "event_type": "中标",
+          "role": "中标公司",
+          "extra_units": 36
+        },
+        {
+          "event_type": "股东减持",
+          "role": "减持方",
+          "extra_units": 27
+        },
+        {
+          "event_type": "高管变动",
+          "role": "高管职位",
+          "extra_units": 24
+        },
+        {
+          "event_type": "高管变动",
+          "role": "变动后职位",
+          "extra_units": 16
+        },
+        {
+          "event_type": "企业收购",
+          "role": "被收购方",
+          "extra_units": 15
+        },
+        {
+          "event_type": "股东增持",
+          "role": "增持方",
+          "extra_units": 15
+        },
+        {
+          "event_type": "股份回购",
+          "role": "交易金额",
+          "extra_units": 9
+        }
+      ],
+      "examples": [
+        {
+          "document_id": "5259811fce42c3a4833e326fb8f847a9",
+          "record_id": "0",
+          "event_type": "中标",
+          "role": "中标公司",
+          "values": [
+            "华润",
+            "国药器械",
+            "国药控股",
+            "海王"
+          ],
+          "extra_units": 3
+        },
+        {
+          "document_id": "23ba128e902745d21c41fdd6097fa18b",
+          "record_id": "0",
+          "event_type": "股份回购",
+          "role": "每股交易价格",
+          "values": [
+            "3.57元",
+            "6.1297元"
+          ],
+          "extra_units": 1
+        },
+        {
+          "document_id": "35fabe18c5f8e5898ed45043d064ac8f",
+          "record_id": "0",
+          "event_type": "高管变动",
+          "role": "高管职位",
+          "values": [
+            "公司副总经理",
+            "董事会秘书"
+          ],
+          "extra_units": 1
+        },
+        {
+          "document_id": "35fabe18c5f8e5898ed45043d064ac8f",
+          "record_id": "1",
+          "event_type": "高管变动",
+          "role": "变动后职位",
+          "values": [
+            "公司副总经理",
+            "董事会秘书"
+          ],
+          "extra_units": 1
+        },
+        {
+          "document_id": "3bcc9e43da529f05ccfe941f1fda690e",
+          "record_id": "1",
+          "event_type": "质押",
+          "role": "质押方",
+          "values": [
+            "一致行动人",
+            "华夏控股"
+          ],
+          "extra_units": 1
+        }
+      ]
+    },
+    {
+      "dataset": "DocFEE-dev1000",
+      "split": "train",
+      "document_count": 17244,
+      "event_record_count": 32393,
+      "canonical_raw_role_value_unit_count": 102718,
+      "canonical_unique_role_value_unit_count": 102718,
+      "fixed_slot_non_empty_unit_count": "not_applicable",
+      "fixed_slot_status": "not_applicable",
+      "fixed_slot_note": "DocFEE schema is a JSON object properties schema, not a native ordered fixed-slot role schema",
+      "multi_value_role_occurrence_count": 0,
+      "documents_with_multi_value_role": 0,
+      "records_with_multi_value_role": 0,
+      "multi_value_extra_units_over_fixed_slot_representation": 0,
+      "top_event_type_role_pairs_by_extra_units": [],
+      "examples": []
+    },
+    {
+      "dataset": "DocFEE-dev1000",
+      "split": "dev",
+      "document_count": 1000,
+      "event_record_count": 1846,
+      "canonical_raw_role_value_unit_count": 5801,
+      "canonical_unique_role_value_unit_count": 5801,
+      "fixed_slot_non_empty_unit_count": "not_applicable",
+      "fixed_slot_status": "not_applicable",
+      "fixed_slot_note": "DocFEE schema is a JSON object properties schema, not a native ordered fixed-slot role schema",
+      "multi_value_role_occurrence_count": 0,
+      "documents_with_multi_value_role": 0,
+      "records_with_multi_value_role": 0,
+      "multi_value_extra_units_over_fixed_slot_representation": 0,
+      "top_event_type_role_pairs_by_extra_units": [],
+      "examples": []
+    },
+    {
+      "dataset": "DocFEE-dev1000",
+      "split": "test",
+      "document_count": 800,
+      "event_record_count": 1236,
+      "canonical_raw_role_value_unit_count": 3973,
+      "canonical_unique_role_value_unit_count": 3973,
+      "fixed_slot_non_empty_unit_count": "not_applicable",
+      "fixed_slot_status": "not_applicable",
+      "fixed_slot_note": "DocFEE schema is a JSON object properties schema, not a native ordered fixed-slot role schema",
+      "multi_value_role_occurrence_count": 0,
+      "documents_with_multi_value_role": 0,
+      "records_with_multi_value_role": 0,
+      "multi_value_extra_units_over_fixed_slot_representation": 0,
+      "top_event_type_role_pairs_by_extra_units": [],
+      "examples": []
+    }
+  ]
+}

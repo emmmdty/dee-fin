@@ -1,0 +1,4 @@
+- `./data` 目录为本项目使用的冻结数据集，不允许删除或者修改
+- `./baseline` 目录为本项目对比方案的官方github仓库，不允许删除或者修改
+- 本地 Python：`/home/tjk/miniconda3/envs/feg-dev-py310/bin/python`
+- 服务器 Python：`/home/TJK/.conda/envs/tjk-feg/bin/python`

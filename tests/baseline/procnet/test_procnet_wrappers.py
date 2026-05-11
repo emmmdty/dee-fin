@@ -173,6 +173,8 @@ class ProcNetWrapperTest(unittest.TestCase):
         self.assertNotIn("CUDA_VISIBLE_DEVICES=0,1", result.stdout)
         self.assertIn("--dataset ChFinAnn-Doc2EDAG", result.stdout)
         self.assertIn("--dataset DuEE-Fin-dev500", result.stdout)
+        self.assertIn("--experiment-name procnet_chfinann_doc2edag_seed42_es100", result.stdout)
+        self.assertIn("--experiment-name procnet_duee_fin_dev500_seed42_es100", result.stdout)
 
     def test_run_procnet_dry_run_does_not_create_run_directory_or_train(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -287,6 +289,13 @@ class ProcNetWrapperTest(unittest.TestCase):
                 self.assertEqual(artifacts["canonical_pred_path"], f"canonical/{split}.canonical.pred.jsonl")
 
     def test_baseline_procnet_source_files_are_unmodified(self) -> None:
+        if not (PROJECT_ROOT / ".git").exists():
+            baseline_root = PROJECT_ROOT / "baseline" / "procnet"
+            self.assertTrue(baseline_root.is_dir(), baseline_root)
+            for runtime_dir in ("Result", "Checkpoint", "Data"):
+                self.assertFalse((baseline_root / runtime_dir).exists(), runtime_dir)
+            return
+
         result = subprocess.run(
             ["git", "diff", "--name-only", "--", "baseline/procnet"],
             cwd=PROJECT_ROOT,

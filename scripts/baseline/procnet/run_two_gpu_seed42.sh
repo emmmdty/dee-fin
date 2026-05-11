@@ -50,7 +50,7 @@ cmd_chfinann=(
   "$PYTHON_BIN" scripts/baseline/procnet/run_procnet_repro.py
   --project-root "$PROJECT_ROOT"
   --dataset ChFinAnn-Doc2EDAG
-  --experiment-name chfinann_doc2edag_procnet_seed42
+  --experiment-name procnet_chfinann_doc2edag_seed42_es100
   --seed 42
   --max-epochs "$MAX_EPOCHS"
   --patience "$PATIENCE"
@@ -62,7 +62,7 @@ cmd_duee=(
   "$PYTHON_BIN" scripts/baseline/procnet/run_procnet_repro.py
   --project-root "$PROJECT_ROOT"
   --dataset DuEE-Fin-dev500
-  --experiment-name duee_fin_dev500_procnet_seed42
+  --experiment-name procnet_duee_fin_dev500_seed42_es100
   --seed 42
   --max-epochs "$MAX_EPOCHS"
   --patience "$PATIENCE"

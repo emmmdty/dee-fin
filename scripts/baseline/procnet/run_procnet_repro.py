@@ -39,6 +39,12 @@ from scripts.baseline.procnet.procnet_wrapper import (
 )
 
 
+DEFAULT_MODEL_NAME = os.environ.get(
+    "PROCNET_MODEL_NAME",
+    "/data/TJK/DEE/models/chinese-roberta-wwm-ext",
+)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run script-side ProcNet reproduction wrappers.")
     parser.add_argument("--project-root", required=True)
@@ -84,6 +90,8 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_reproduction(config: Any, *, command: list[str]) -> None:
     os.environ["CUDA_VISIBLE_DEVICES"] = str(config.gpu)
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
     ensure_run_layout(config.run_dir)
     seed_metadata = set_seed(config.seed)
     write_run_metadata(config, command=command, seed_metadata=seed_metadata)
@@ -143,7 +151,7 @@ def _run_procnet_training(config: Any, baseline_runtime: Path, schema_path: Path
     dee_config.gradient_accumulation_steps = 32
     dee_config.max_epochs = config.max_epochs
     dee_config.data_loader_shuffle = True
-    dee_config.model_name = "hfl/chinese-roberta-wwm-ext"
+    dee_config.model_name = DEFAULT_MODEL_NAME
     dee_config.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     processor = DocEEProcessor(False)

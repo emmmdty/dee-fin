@@ -2,7 +2,14 @@
 
 ## Claude Code project rules
 
-- For method-document work, only edit files under docs/method/v1 unless explicitly instructed otherwise.
-- Never delete or modify ./data.
-- Never delete or modify ./baseline.
-- Treat evaluator outputs and split files as frozen unless the user explicitly asks for evaluator implementation work.
+This repository is for Chinese financial document-level event extraction research.
+
+Hard constraints:
+- Do not delete, rewrite, move, or regenerate ./data unless explicitly instructed.
+- Do not delete, rewrite, move, or modify ./baseline unless explicitly instructed.
+- For the current task, only inspect repository files and improve documentation under docs/method/.
+- Treat docs/method/easv_v1.md as a draft report, not as ground truth.
+- Verify every repository-specific claim against actual local files.
+- Use the local Python interpreter: /home/tjk/miniconda3/envs/feg-dev-py310/bin/python.
+- Never tune on test data.
+- Keep Doc2EDAG-style, DocFEE official-style, and Unified Strict evaluator tracks conceptually separated.

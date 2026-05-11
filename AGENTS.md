@@ -2,3 +2,5 @@
 - `./baseline` 目录为本项目对比方案的官方github仓库，不允许删除或者修改
 - 本地 Python：`/home/tjk/miniconda3/envs/feg-dev-py310/bin/python`
 - 服务器 Python：`/home/TJK/.conda/envs/tjk-feg/bin/python`
+- 项目服务器目录：`/data/TJK/DEE/dee-fin`
+- `baseline/procnet` 服务器 Python：`/home/TJK/.conda/envs/procnet`

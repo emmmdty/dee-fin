@@ -535,11 +535,17 @@ Venue decision:
 ```text
 docs/method/carve_method_design_v1_3.md
 docs/method/carve_method_design_v1_2.md
-docs/method/easv_v1.md
+docs/method/easv_v1.md  # deprecated and intentionally removed from this checkout
 docs/method/ecpd_crv_v0.md
 docs/method/README.md
 docs/measurements/p1_memory_template.md
 docs/measurements/p5b_decision_table_template.md
+docs/phase/README.md
+docs/phase/p0_documentation_freeze.md
+docs/phase/p1_memory_measurement_plan.md
+docs/phase/p4_allocation_toy_validation_plan.md
+docs/phase/p5a_edag_toy_gate_plan.md
+docs/phase/p5b_dev_diagnostic_gate_plan.md
 ```
 
 `docs/method/README.md` should state that all method documents are proposals only and that no CARVE / EASV / ECPD-CRV model components are implemented yet.

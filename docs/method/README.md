@@ -14,7 +14,7 @@ No CARVE / EASV / ECPD-CRV model components, training scripts, Sinkhorn allocati
 
 | Document | Presence | Status | Notes |
 |---|---|---|---|
-| `easv_v1.md` | Present | Superseded proposal | Earlier pipeline-style proposal. Keep for design history only. |
+| `easv_v1.md` | Removed from this checkout | Superseded proposal | Deprecated design content intentionally deleted; do not restore unless the user explicitly asks for archival recovery. |
 | `ecpd_crv_v0.md` | Not present in this checkout | Superseded proposal if restored | Intermediate cross-record-aware hard-mask proposal. |
 | `carve_method_design_v1_1.md` | Not present in this checkout | Superseded proposal if restored | Early CARVE allocation-prior draft. |
 | `carve_method_design_v1_2.md` | Not present in this checkout | Superseded proposal if restored | Added `L_alloc`, share-gate definitions, and diagnostic clarifications. |
@@ -24,7 +24,7 @@ No CARVE / EASV / ECPD-CRV model components, training scripts, Sinkhorn allocati
 
 Do not implement CARVE end-to-end yet.
 
-The next step is the minimal validation chain:
+The next step is the minimal validation chain recorded under `docs/phase/`:
 
 ```text
 P0 -> P1 -> P4 -> P5a -> P5b
@@ -52,3 +52,5 @@ The following must not be stated as already implemented until corresponding code
 - end-to-end inference scripts
 - reproduced full baseline matrix
 - measured GPU memory numbers
+
+See `docs/phase/README.md` for phase gate rules and acceptance documents.

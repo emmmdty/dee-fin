@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import json
 import os
 import shutil
 import sys
@@ -16,9 +15,6 @@ if __package__ in (None, ""):
 
 from scripts.baseline.procnet.collect_metrics import write_summary
 from scripts.baseline.procnet.procnet_data_adapters import (
-    canonical_predictions_from_native_table,
-    export_canonical_gold_from_source,
-    export_canonical_split,
     load_procnet_schema,
     stage_dataset,
 )
@@ -27,7 +23,9 @@ from scripts.baseline.procnet.procnet_event_table_dump import (
     matrices_from_raw_results,
     write_native_event_table,
 )
+from scripts.baseline.procnet.procnet_reexport_eval import rewrite_canonical_artifacts
 from scripts.baseline.procnet.procnet_training import build_early_stopping_trainer_class
+from scripts.baseline.procnet.procnet_value_decode import ProcNetTokenSlotDecoder, load_procnet_tokenizer
 from scripts.baseline.procnet.procnet_wrapper import (
     DATASETS,
     build_run_config,
@@ -213,21 +211,15 @@ def _write_native_and_canonical_artifacts(
                 "patience": config.patience,
             },
         )
-        gold_path = export_canonical_gold_from_source(
-            source_path=staged[f"source_{split}"],
-            output_root=config.run_dir / "canonical",
-            dataset=config.dataset,
-            split=split,
-        )
-        pred_documents = canonical_predictions_from_native_table(native_payload)
-        _, pred_path = export_canonical_split(
-            config.run_dir / "canonical",
-            split=split,
-            gold_documents=[json.loads(line) for line in gold_path.read_text(encoding="utf-8").splitlines() if line],
-            pred_documents=pred_documents,
-        )
-        del pred_path
         payloads[split] = native_payload
+    value_decoder = ProcNetTokenSlotDecoder(load_procnet_tokenizer(DEFAULT_MODEL_NAME))
+    rewrite_canonical_artifacts(
+        project_root=config.project_root,
+        run_dir=config.run_dir,
+        dataset=config.dataset,
+        splits=splits,
+        value_transform=value_decoder,
+    )
     return payloads
 
 

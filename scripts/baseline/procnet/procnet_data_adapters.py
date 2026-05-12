@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from evaluator.canonical.loaders import load_documents
 
@@ -151,9 +151,14 @@ def export_canonical_gold_from_source(
     return gold_path
 
 
-def canonical_predictions_from_native_table(native_table: dict[str, Any]) -> list[dict[str, Any]]:
+def canonical_predictions_from_native_table(
+    native_table: dict[str, Any],
+    *,
+    value_transform: Callable[[Any], Any] | None = None,
+) -> list[dict[str, Any]]:
     event_types = native_table["event_types"]
     event_type_fields = native_table["event_type_fields"]
+    transform = value_transform or (lambda value: value)
     rows = []
     for document in native_table["documents"]:
         predictions = []
@@ -162,7 +167,7 @@ def canonical_predictions_from_native_table(native_table: dict[str, Any]) -> lis
             roles = event_type_fields[event_type]
             for record_index, record in enumerate(records):
                 arguments = {
-                    role: value
+                    role: transform(value)
                     for role, value in zip(roles, record)
                     if value is not None
                 }

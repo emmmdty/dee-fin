@@ -137,6 +137,67 @@ class ProcNetWrapperTest(unittest.TestCase):
                 self.assertIn('"events"', gold.read_text(encoding="utf-8"))
                 self.assertIn('"predictions"', pred.read_text(encoding="utf-8"))
 
+    def test_token_id_slot_decoder_decodes_procnet_slot_values(self) -> None:
+        from scripts.baseline.procnet.procnet_value_decode import ProcNetTokenSlotDecoder, coerce_token_id_sequence
+
+        class FakeTokenizer:
+            def decode(self, token_ids, skip_special_tokens=True):
+                self.last_skip_special_tokens = skip_special_tokens
+                return "众 安 集 团" if token_ids == [830, 2128, 7415, 1730] else ""
+
+        decoder = ProcNetTokenSlotDecoder(FakeTokenizer())
+
+        self.assertEqual(coerce_token_id_sequence("[830, 2128, 7415, 1730]"), [830, 2128, 7415, 1730])
+        self.assertIsNone(coerce_token_id_sequence("众安集团"))
+        self.assertEqual(decoder("[830, 2128, 7415, 1730]"), "众安集团")
+        self.assertEqual(decoder("众安集团"), "众安集团")
+        self.assertEqual(decoder.report()["decoded_slot_count"], 1)
+        self.assertEqual(decoder.report()["passthrough_slot_count"], 1)
+
+    def test_canonical_predictions_from_native_table_can_transform_slot_values(self) -> None:
+        from scripts.baseline.procnet.procnet_data_adapters import canonical_predictions_from_native_table
+
+        rows = canonical_predictions_from_native_table(
+            {
+                "event_types": ["EventA"],
+                "event_type_fields": {"EventA": ["RoleA", "RoleB"]},
+                "documents": [
+                    {
+                        "document_id": "doc-1",
+                        "pred": [[[None, "[1, 2]"]]],
+                    }
+                ],
+            },
+            value_transform=lambda value: "decoded" if value == "[1, 2]" else value,
+        )
+
+        self.assertEqual(rows[0]["predictions"][0]["arguments"], {"RoleB": "decoded"})
+
+    def test_reexport_dry_run_does_not_rewrite_artifacts(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_ROOT / "procnet_reexport_eval.py"),
+                "--project-root",
+                str(PROJECT_ROOT),
+                "--dataset",
+                "DuEE-Fin-dev500",
+                "--experiment-name",
+                "dryrun_reexport_unit",
+                "--decode-token-slots",
+                "--dry-run",
+            ],
+            cwd=PROJECT_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("DRY RUN", result.stdout)
+        self.assertIn("decode_token_slots: True", result.stdout)
+        self.assertIn("procnet_reexport_eval", str(SCRIPT_ROOT / "procnet_reexport_eval.py"))
+
     def test_evaluator_commands_use_run_local_canonical_gold(self) -> None:
         from scripts.baseline.procnet.procnet_eval_runner import build_evaluator_commands
 

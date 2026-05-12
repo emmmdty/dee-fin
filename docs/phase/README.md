@@ -36,3 +36,4 @@ Later phases P2, P3, P6, P7, P8, and P9 should not be expanded into implementati
 | P4 | `p4_allocation_toy_validation_plan.md` | Planned, not implemented |
 | P5a | `p5a_edag_toy_gate_plan.md` | Planned, not implemented |
 | P5b | `p5b_dev_diagnostic_gate_plan.md` | Planned, not run |
+| P5b DuEE-Fin first long run | `p5b_duee_fin_first_long_train.md` | Implementation in progress; dev diagnostic only |

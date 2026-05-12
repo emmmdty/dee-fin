@@ -10,9 +10,13 @@ P1 is a measurement phase, not a training phase. It may use `gpu-4090` only afte
 
 Measure forward-pass memory for:
 
-- ChFinAnn / DuEE-Fin baseline encoder route: `hfl/chinese-roberta-wwm-ext` with 512-token sliding windows.
-- DocFEE long-document candidates: `thunlp/Lawformer` and `schen/longformer-chinese-base-4096`.
+- ChFinAnn / DuEE-Fin baseline encoder route: `hfl/chinese-roberta-wwm-ext` via local safetensors path `/data/TJK/DEE/dee-fin/models/chinese-roberta-wwm-ext_safetensors`, with 512-token sliding windows.
+- DocFEE long-document candidates:
+  - `thunlp/Lawformer` via local safetensors path `/data/TJK/DEE/dee-fin/models/thunlp_Lawformer_safetensors`;
+  - `schen/longformer-chinese-base-4096` via local safetensors path `/data/TJK/DEE/dee-fin/models/schen_longformer-chinese-base-4096_safetensors_custom`.
 - CARVE head estimates or implemented lightweight heads only if those modules already exist in a later phase.
+
+P1 commands must use the project-local safetensors paths above with offline/local-only loading: set `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, and `HF_DATASETS_OFFLINE=1`, and pass `local_files_only=True` and `use_safetensors=True` in model-loading code. Do not point P1 commands at Hugging Face repo ids or the original `.bin` model directories.
 
 ## Acceptance Criteria
 

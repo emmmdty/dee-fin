@@ -15,6 +15,15 @@
 - Project server directory: `/data/TJK/DEE/dee-fin`
 - `baseline/procnet` server Python: `/home/TJK/.conda/envs/procnet`
 
+## CARVE Model Artifacts
+
+- For CARVE P1 encoder measurement, use the project-local safetensors directories on `gpu-4090`:
+  - `/data/TJK/DEE/dee-fin/models/chinese-roberta-wwm-ext_safetensors`
+  - `/data/TJK/DEE/dee-fin/models/thunlp_Lawformer_safetensors`
+  - `/data/TJK/DEE/dee-fin/models/schen_longformer-chinese-base-4096_safetensors_custom`
+- P1 scripts and smoke checks must set offline mode and local-only loading, for example `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, `HF_DATASETS_OFFLINE=1`, `local_files_only=True`, and `use_safetensors=True`.
+- Do not point CARVE P1 commands at Hugging Face repo ids or the original `.bin` model directories.
+
 ## Execution Boundaries
 
 - Develop locally by default.

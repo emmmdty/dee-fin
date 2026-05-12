@@ -98,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _git_commit() -> str:
+    if os.environ.get("DEE_FIN_GIT_COMMIT"):
+        return os.environ["DEE_FIN_GIT_COMMIT"]
     process = subprocess.run(["git", "rev-parse", "HEAD"], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     return process.stdout.strip() if process.returncode == 0 else "unknown"
 

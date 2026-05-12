@@ -470,6 +470,7 @@ def _environment(args: argparse.Namespace) -> dict[str, Any]:
         "cwd": os.getcwd(),
         "cuda_available": torch.cuda.is_available(),
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "git_commit": os.environ.get("DEE_FIN_GIT_COMMIT"),
         "model_path_recorded": args.model_path,
     }
 

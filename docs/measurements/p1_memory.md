@@ -3,7 +3,7 @@
 > Status: measured evidence from P1. Do not edit manually without rerunning the command.
 
 - Host: `ubuntu`
-- Git commit: `3b5338790c3844e2e52a90776f32d99983e02dc8`
+- Git commit: `d03e3c5ba1b48a546c2ff21c20eef50cdd7eb6a4`
 - Python: `/home/TJK/.conda/envs/tjk-feg/bin/python`
 
 | Model | Status | Seq Len | Batch | Peak Allocated GB | Peak Reserved GB |

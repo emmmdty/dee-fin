@@ -80,3 +80,72 @@ nohup env PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS
   --routes baseline,carve \
   > runs/carve/p5b_duee_fin_dev500_seed42/logs/train.log 2>&1 < /dev/null & echo $!
 ```
+
+## Acceptance Result
+
+Status: completed / accepted as DuEE-Fin dev diagnostic evidence only.
+
+Acceptance date: 2026-05-13.
+
+This R5b run reran the DuEE-Fin first long diagnostic on `gpu-4090` from local commit `d03e3c5ba1b48a546c2ff21c20eef50cdd7eb6a4`. Source files used by the R5b runner, P1 measurement script, and phase docs were hash-checked between local and `/data/TJK/DEE/dee-fin` before running.
+
+Remote evidence:
+
+- P1 prerequisite rerun: `runs/carve/p1_memory/result.json` and `docs/measurements/p1_memory.md`.
+- Smoke run: `runs/carve/p5b_duee_fin_dev500_seed42_smoke`.
+- Detached long run: `runs/carve/p5b_duee_fin_dev500_seed42`.
+- Long-run log: `runs/carve/p5b_duee_fin_dev500_seed42/logs/train.log`.
+- Wrapper PID: `2486605`.
+- Python PID: `2486607`.
+- Initial stable observation: Python process running, GPU memory about 486 MB, log reached epoch 1 without errors.
+- Completion: no R5b runner process remained after epoch 9; `summary.json` and `diagnostics/p5b_duee_fin_decision_row.json` were written.
+
+Observed long-run data:
+
+| Item | Value |
+|---|---:|
+| Train multi-event documents | 1,892 |
+| Dev multi-event documents | 146 |
+| Training groups | 19,322 |
+| Elapsed seconds | 1,861.950 |
+| Final logged epoch | 9 |
+| Final logged loss | 0.965967 |
+
+Unified-strict dev diagnostics:
+
+| Route | Candidate count | Predicted records | TP | FP | FN | Precision | Recall | F1 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| baseline | 148,651 | 1,892 | 202 | 8,599 | 1,825 | 0.022952 | 0.099655 | 0.037311 |
+| carve | 148,651 | 3,082 | 225 | 39,098 | 1,802 | 0.005722 | 0.111001 | 0.010883 |
+
+Runner decision row:
+
+```json
+{
+  "dataset": "DuEE-Fin-dev500",
+  "split": "dev",
+  "status": "dev_diagnostic_only_not_final_test",
+  "support_label": "No support"
+}
+```
+
+Measured evidence file:
+
+- `docs/measurements/p5b_duee_fin_dev500_seed42.md`
+
+Interpretation:
+
+- This completes only the authorized R5b DuEE-Fin first long run.
+- It does not complete the full P5b three-dataset gate.
+- It does not write or promote `docs/measurements/p5b_decision_table.md`.
+- It is not a hidden-test result, final-test result, SOTA claim, Qwen verifier claim, or full CARVE implementation report.
+
+Closeout validation passed:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 /home/tjk/miniconda3/envs/feg-dev-py310/bin/python -B -m unittest discover -s tests/carve -v
+PYTHONDONTWRITEBYTECODE=1 /home/tjk/miniconda3/envs/feg-dev-py310/bin/python -B -m unittest discover -s tests/evaluator -v
+PYTHONDONTWRITEBYTECODE=1 /home/tjk/miniconda3/envs/feg-dev-py310/bin/python -B -m unittest tests.data_split.test_split_utils -v
+PYTHONDONTWRITEBYTECODE=1 /home/tjk/miniconda3/envs/feg-dev-py310/bin/python -B -m unittest discover -s tests/baseline/procnet -v
+git diff --check
+```

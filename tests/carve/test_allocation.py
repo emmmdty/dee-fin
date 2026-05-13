@@ -89,9 +89,43 @@ class AllocationTargetTests(unittest.TestCase):
     def test_p5a_toy_comparison_changes_preference(self) -> None:
         comparison = p5a_toy_comparison()
 
+        self.assertEqual(comparison["status"], "toy_behavior_only")
+        self.assertTrue(comparison["accepted"])
+        self.assertFalse(comparison["oracle_inject"])
+        self.assertEqual(comparison["expected_misallocation"]["wrong_record_id"], "r2")
+        self.assertEqual(comparison["expected_misallocation"]["correct_record_id"], "r1")
+        self.assertEqual(comparison["expected_misallocation"]["role"], "质权方")
+        self.assertEqual(comparison["expected_misallocation"]["value"], "丙银行")
+        self.assertEqual(
+            comparison["baseline_route"]["toy_input_signature"],
+            comparison["allocation_aware_route"]["toy_input_signature"],
+        )
+        self.assertEqual(comparison["baseline_route"]["choice"]["record_id"], "r2")
+        self.assertEqual(comparison["allocation_aware_route"]["choice"]["record_id"], "r1")
         self.assertEqual(comparison["baseline_choice"], "wrong-record")
         self.assertEqual(comparison["allocation_aware_choice"], "correct-record")
         self.assertGreater(comparison["allocation_margin"], 0)
+        self.assertEqual(
+            comparison["share_gate"],
+            {
+                "shared_surface_role": "质押方",
+                "shared_surface_value": "甲公司",
+                "shared_surface_share_label": True,
+                "disputed_role": "质权方",
+                "disputed_value": "丙银行",
+                "disputed_value_share_label": False,
+            },
+        )
+        self.assertEqual(
+            comparison["acceptance_checks"],
+            {
+                "same_toy_inputs": True,
+                "explicit_deterministic_misallocation": True,
+                "allocation_changes_preference": True,
+                "toy_behavior_only": True,
+                "oracle_injection_disabled": True,
+            },
+        )
 
     def test_p4_toy_validation_summary_covers_acceptance_checks(self) -> None:
         summary = p4_toy_validation_summary()
@@ -130,6 +164,8 @@ class AllocationTargetTests(unittest.TestCase):
             payload = json.loads(out.read_text(encoding="utf-8"))
             self.assertTrue(payload["p4"]["accepted"])
             self.assertEqual(payload["p4"]["status"], "toy_behavior_only")
+            self.assertTrue(payload["p5a"]["accepted"])
+            self.assertEqual(payload["p5a"]["status"], "toy_behavior_only")
 
 
 if __name__ == "__main__":

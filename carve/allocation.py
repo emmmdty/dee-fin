@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -221,17 +222,156 @@ def p4_toy_validation_summary() -> dict[str, object]:
 
 
 def p5a_toy_comparison() -> dict[str, object]:
-    baseline_scores = {"wrong-record": 0.72, "correct-record": 0.65}
-    allocation_scores = {"wrong-record": 0.18, "correct-record": 0.91}
-    baseline_choice = max(baseline_scores, key=baseline_scores.get)
-    allocation_choice = max(allocation_scores, key=allocation_scores.get)
+    records = [
+        CanonicalEventRecord(
+            document_id="doc-p5a",
+            event_type="质押",
+            record_id="r2",
+            arguments={"质押方": ["甲公司"], "质权方": ["乙银行"]},
+        ),
+        CanonicalEventRecord(
+            document_id="doc-p5a",
+            event_type="质押",
+            record_id="r1",
+            arguments={"质押方": ["甲公司"], "质权方": ["丙银行"]},
+        ),
+    ]
+    candidates = [
+        CandidateMention(event_type="质押", role="质押方", value="甲公司", start=3, end=6),
+        CandidateMention(event_type="质押", role="质权方", value="丙银行", start=18, end=21),
+    ]
+    shared_batch = build_allocation_targets(
+        records=records,
+        event_type="质押",
+        role="质押方",
+        candidates=candidates,
+        oracle_inject=False,
+    )
+    disputed_batch = build_allocation_targets(
+        records=records,
+        event_type="质押",
+        role="质权方",
+        candidates=candidates,
+        oracle_inject=False,
+    )
+
+    record_order = [record.record_id for record in disputed_batch.records]
+    base_scores_by_record = {"r1": 0.65, "r2": 0.72}
+    allocation_prior_by_record = {"r1": 0.91, "r2": 0.18}
+    lambda_alloc = 0.5
+    toy_input_signature = {
+        "event_type": disputed_batch.event_type,
+        "record_order": record_order,
+        "candidates": [
+            {
+                "role": candidate.role,
+                "value": candidate.value,
+                "start": candidate.start,
+                "end": candidate.end,
+            }
+            for candidate in candidates
+        ],
+    }
+
+    baseline_route = _p5a_route_summary(
+        route_name="no_allocation_baseline",
+        toy_input_signature=toy_input_signature,
+        score_components={
+            record_id: {
+                "base": base_scores_by_record[record_id],
+                "allocation_log": 0.0,
+                "share_adjustment": 0.0,
+                "total": base_scores_by_record[record_id],
+            }
+            for record_id in record_order
+        },
+    )
+    allocation_route = _p5a_route_summary(
+        route_name="allocation_prior_share_gate",
+        toy_input_signature=toy_input_signature,
+        score_components={
+            record_id: {
+                "base": base_scores_by_record[record_id],
+                "allocation_log": math.log(allocation_prior_by_record[record_id]),
+                "share_adjustment": 0.0,
+                "total": base_scores_by_record[record_id]
+                + lambda_alloc * math.log(allocation_prior_by_record[record_id]),
+            }
+            for record_id in record_order
+        },
+    )
+
+    label_by_record = {"r1": "correct-record", "r2": "wrong-record"}
+    baseline_scores = {
+        label_by_record[record_id]: baseline_route["score_components"][record_id]["total"]
+        for record_id in record_order
+    }
+    allocation_scores = {
+        label_by_record[record_id]: allocation_route["score_components"][record_id]["total"]
+        for record_id in record_order
+    }
+    baseline_choice = label_by_record[baseline_route["choice"]["record_id"]]
+    allocation_choice = label_by_record[allocation_route["choice"]["record_id"]]
+    share_gate = {
+        "shared_surface_role": shared_batch.candidates[0].role,
+        "shared_surface_value": shared_batch.candidates[0].value,
+        "shared_surface_share_label": shared_batch.share_labels[0],
+        "disputed_role": disputed_batch.candidates[0].role,
+        "disputed_value": disputed_batch.candidates[0].value,
+        "disputed_value_share_label": disputed_batch.share_labels[0],
+    }
+    acceptance_checks = {
+        "same_toy_inputs": baseline_route["toy_input_signature"] == allocation_route["toy_input_signature"],
+        "explicit_deterministic_misallocation": record_order == ["r1", "r2"]
+        and disputed_batch.target.tolist()[0] == [1.0, 0.0, 0.0]
+        and baseline_choice == "wrong-record",
+        "allocation_changes_preference": allocation_choice == "correct-record"
+        and allocation_scores["correct-record"] > allocation_scores["wrong-record"],
+        "toy_behavior_only": True,
+        "oracle_injection_disabled": not any(candidate.oracle_injected for candidate in disputed_batch.candidates),
+    }
     return {
+        "status": "toy_behavior_only",
+        "accepted": all(acceptance_checks.values()),
+        "oracle_inject": False,
+        "records": [
+            {"record_id": record.record_id, "arguments": record.arguments} for record in disputed_batch.records
+        ],
+        "expected_misallocation": {
+            "role": disputed_batch.candidates[0].role,
+            "value": disputed_batch.candidates[0].value,
+            "wrong_record_id": "r2",
+            "correct_record_id": "r1",
+            "target_row": disputed_batch.target.tolist()[0],
+        },
+        "share_gate": share_gate,
+        "baseline_route": baseline_route,
+        "allocation_aware_route": allocation_route,
         "baseline_choice": baseline_choice,
         "allocation_aware_choice": allocation_choice,
         "baseline_scores": baseline_scores,
         "allocation_scores": allocation_scores,
         "allocation_margin": allocation_scores["correct-record"] - allocation_scores["wrong-record"],
-        "status": "toy_behavior_only",
+        "acceptance_checks": acceptance_checks,
+        "non_goals": ["no dev scoring", "no test scoring", "no model training", "no verifier pruning"],
+    }
+
+
+def _p5a_route_summary(
+    *,
+    route_name: str,
+    toy_input_signature: dict[str, object],
+    score_components: dict[str, dict[str, float]],
+) -> dict[str, object]:
+    choice_record_id = max(score_components, key=lambda record_id: score_components[record_id]["total"])
+    return {
+        "route": route_name,
+        "toy_input_signature": toy_input_signature,
+        "score_components": score_components,
+        "choice": {
+            "record_id": choice_record_id,
+            "score": score_components[choice_record_id]["total"],
+        },
     }
 
 

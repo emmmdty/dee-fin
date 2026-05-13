@@ -286,6 +286,8 @@ def _predict_route(
     rows = []
     candidate_total = 0
     predicted_record_total = 0
+    predicted_by_event_type: dict[str, int] = defaultdict(int)
+    arguments_by_event_type: dict[str, int] = defaultdict(int)
     for document in documents:
         events = []
         for event_type, roles in schema.event_roles.items():
@@ -316,6 +318,7 @@ def _predict_route(
                 share_probs = torch.sigmoid(
                     model.share_logits(_candidate_feature_matrix(document, candidates).to(device))
                 ).detach().cpu()
+                proposals: dict[int, tuple[str, float]] = {}
                 for row_index, candidate in enumerate(candidates):
                     row = probs[row_index]
                     null_score = row[-1]
@@ -325,13 +328,23 @@ def _predict_route(
                     if share_probs[row_index] >= 0.5:
                         for column_index, score in enumerate(row[:-1]):
                             if score >= share_threshold:
-                                records[column_index][role].append(candidate.value)
+                                value_score = float(score)
+                                existing = proposals.get(column_index)
+                                if existing is None or value_score > existing[1]:
+                                    proposals[column_index] = (candidate.value, value_score)
                     else:
-                        records[best_index][role].append(candidate.value)
+                        value_score = float(row[best_index])
+                        existing = proposals.get(best_index)
+                        if existing is None or value_score > existing[1]:
+                            proposals[best_index] = (candidate.value, value_score)
+                for column_index, (value, _) in proposals.items():
+                    records[column_index][role].append(value)
             for record_index, arguments in enumerate(records):
                 compact = {role: sorted(set(values)) for role, values in arguments.items() if values}
                 if compact:
                     predicted_record_total += 1
+                    predicted_by_event_type[event_type] += 1
+                    arguments_by_event_type[event_type] += sum(len(values) for values in compact.values())
                     events.append(
                         {
                             "event_type": event_type,
@@ -340,7 +353,12 @@ def _predict_route(
                         }
                     )
         rows.append({"document_id": document.document_id, "events": events})
-    return rows, {"candidate_count": candidate_total, "predicted_record_count": predicted_record_total}
+    return rows, {
+        "candidate_count": candidate_total,
+        "predicted_record_count": predicted_record_total,
+        "predicted_by_event_type": dict(predicted_by_event_type),
+        "arguments_by_event_type": dict(arguments_by_event_type),
+    }
 
 
 def _predict_allocation_probs(

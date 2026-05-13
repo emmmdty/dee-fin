@@ -14,10 +14,9 @@ import torch
 from torch import nn
 
 from carve.datasets import load_duee_documents, multi_event_subset
-from carve.encoder import EncoderOutput, build_encoder
+from carve.encoder import build_encoder
 from carve.p2_heads import EvidenceHead, PointerHead, build_evidence_labels, evidence_bce_loss, pointer_mi_loss
 from carve.text_segmentation import Sentence, split_sentences
-from evaluator.canonical.normalize import normalize_text
 from evaluator.canonical.schema import EventSchema
 
 
@@ -95,46 +94,29 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
             return (step + 1) / warmup_steps
         return 1.0
 
-    doc_batch = max(args.grad_accum, 1)
+    grad_accum = max(args.grad_accum, 1)
     global_step = 0
     history = []
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(1, args.max_epochs + 1):
         random.shuffle(train_docs)
         total = {"loss": 0.0, "evidence_bce": 0.0, "pointer_mi": 0.0, "documents": 0.0}
-        for batch_start in range(0, len(train_docs), doc_batch):
-            batch = train_docs[batch_start : batch_start + doc_batch]
-            # Collect all sentences across the document batch.
-            batch_meta: list[tuple[Any, list[Sentence], int, int]] = []
-            all_sentences: list[Sentence] = []
-            for doc in batch:
-                text = _document_text(doc)
-                sentences = split_sentences(text)
-                if sentences:
-                    s = len(all_sentences)
-                    all_sentences.extend(sentences)
-                    batch_meta.append((doc, sentences, s, len(all_sentences)))
-            if not all_sentences:
+        accum_count = 0
+        for document in train_docs:
+            # encode_document batches all sentences of this doc in one GPU forward.
+            metrics = _p2_document_loss(
+                encoder, evidence_head, pointer_head, type_embedding, role_embedding,
+                document, schema, lambda_ground_mi=args.lambda_ground_mi, device=device,
+            )
+            if metrics is None:
                 continue
-            # One RoBERTa forward for all sentences in this document batch.
-            per_sent = encoder.encode_many_sentences(all_sentences)
-            batch_loss = None
-            n_valid = 0
-            for doc, sentences, s_start, s_end in batch_meta:
-                sent_repr = torch.stack([per_sent[i].sentence_repr for i in range(s_start, s_end)]).to(device)
-                metrics = _p2_doc_loss_from_sent_repr(
-                    sent_repr, evidence_head, pointer_head, type_embedding, role_embedding,
-                    doc, sentences, schema, lambda_ground_mi=args.lambda_ground_mi, device=device,
-                )
-                if metrics is None:
-                    continue
-                batch_loss = metrics["loss"] if batch_loss is None else batch_loss + metrics["loss"]
-                n_valid += 1
-                total["evidence_bce"] += float(metrics["evidence_bce"].cpu())
-                total["pointer_mi"] += float(metrics["pointer_mi"].cpu())
-                total["documents"] += 1.0
-            if batch_loss is not None and n_valid > 0:
-                (batch_loss / n_valid).backward()
+            (metrics["loss"] / grad_accum).backward()
+            accum_count += 1
+            total["loss"] += float(metrics["loss"].detach().cpu())
+            total["evidence_bce"] += float(metrics["evidence_bce"].cpu())
+            total["pointer_mi"] += float(metrics["pointer_mi"].cpu())
+            total["documents"] += 1.0
+            if accum_count % grad_accum == 0:
                 if args.grad_clip > 0:
                     torch.nn.utils.clip_grad_norm_(parameters, max_norm=args.grad_clip)
                 scale = _lr_scale(global_step)
@@ -143,7 +125,15 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
                 global_step += 1
-                total["loss"] += float(batch_loss.detach().cpu())
+        if accum_count % grad_accum != 0:
+            if args.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(parameters, max_norm=args.grad_clip)
+            scale = _lr_scale(global_step)
+            for group in optimizer.param_groups:
+                group["lr"] = group["initial_lr"] * scale
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            global_step += 1
         denom = max(total["documents"], 1.0)
         row = {
             "epoch": epoch,

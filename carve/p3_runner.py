@@ -14,7 +14,7 @@ import torch
 from torch import nn
 
 from carve.datasets import load_duee_documents, multi_event_subset
-from carve.encoder import EncoderOutput, build_encoder
+from carve.encoder import EncoderOutput, _assemble_doc_output, build_encoder
 from carve.p2_heads import EvidenceHead, PointerHead, build_evidence_labels, evidence_bce_loss, pointer_mi_loss
 from carve.p2_runner import _document_text, _labels_to_device, _value_repr
 from carve.p3_mention_crf import MentionCRF, build_bio_labels
@@ -105,39 +105,53 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
             return (step + 1) / warmup_steps
         return 1.0
 
-    grad_accum = max(args.grad_accum, 1)
+    doc_batch = max(args.grad_accum, 1)
     global_step = 0
     history = []
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(1, args.max_epochs + 1):
         random.shuffle(train_docs)
         totals = {"loss": 0.0, "p2": 0.0, "mention": 0.0, "planner": 0.0, "documents": 0.0}
-        accum_count = 0
-        for document in train_docs:
-            metrics = _p3_document_loss(
-                encoder,
-                evidence_head,
-                pointer_head,
-                type_embedding,
-                role_embedding,
-                mention_crf,
-                planner,
-                document,
-                schema,
-                lambda_ground_mi=args.lambda_ground_mi,
-                lambda_mention=args.lambda_mention,
-                lambda_plan=args.lambda_plan,
-                k_max=args.k_max,
-                device=device,
-            )
-            if metrics is None:
+        for batch_start in range(0, len(train_docs), doc_batch):
+            batch = train_docs[batch_start : batch_start + doc_batch]
+            # Collect sentences from the document batch for one batched encoder forward.
+            batch_meta: list[tuple[Any, list[Sentence], int, int]] = []
+            all_sentences: list[Sentence] = []
+            for doc in batch:
+                text = _document_text(doc)
+                sentences = split_sentences(text)
+                if sentences:
+                    s = len(all_sentences)
+                    all_sentences.extend(sentences)
+                    batch_meta.append((doc, sentences, s, len(all_sentences)))
+            if not all_sentences:
                 continue
-            (metrics["loss"] / grad_accum).backward()
-            accum_count += 1
-            for key in ("loss", "p2", "mention", "planner"):
-                totals[key] += float(metrics[key].detach().cpu())
-            totals["documents"] += 1.0
-            if accum_count % grad_accum == 0:
+            per_sent = encoder.encode_many_sentences(all_sentences)
+            batch_loss = None
+            n_valid = 0
+            for doc, sentences, s_start, s_end in batch_meta:
+                doc_per_sent = per_sent[s_start:s_end]
+                sent_repr = torch.stack([o.sentence_repr for o in doc_per_sent]).to(device)
+                doc_encoded = _assemble_doc_output(doc_per_sent, hidden_size, device)
+                metrics = _p3_doc_loss_from_encoded(
+                    sent_repr, doc_encoded, evidence_head, pointer_head,
+                    type_embedding, role_embedding, mention_crf, planner,
+                    doc, sentences, schema,
+                    lambda_ground_mi=args.lambda_ground_mi,
+                    lambda_mention=args.lambda_mention,
+                    lambda_plan=args.lambda_plan,
+                    k_max=args.k_max,
+                    device=device,
+                )
+                if metrics is None:
+                    continue
+                batch_loss = metrics["loss"] if batch_loss is None else batch_loss + metrics["loss"]
+                n_valid += 1
+                for key in ("p2", "mention", "planner"):
+                    totals[key] += float(metrics[key].cpu())
+                totals["documents"] += 1.0
+            if batch_loss is not None and n_valid > 0:
+                (batch_loss / n_valid).backward()
                 if args.grad_clip > 0:
                     torch.nn.utils.clip_grad_norm_(parameters, max_norm=args.grad_clip)
                 scale = _lr_scale(global_step)
@@ -146,15 +160,7 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
                 global_step += 1
-        if accum_count % grad_accum != 0:
-            if args.grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_(parameters, max_norm=args.grad_clip)
-            scale = _lr_scale(global_step)
-            for group in optimizer.param_groups:
-                group["lr"] = group["initial_lr"] * scale
-            optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
-            global_step += 1
+                totals["loss"] += float(batch_loss.detach().cpu())
         denom = max(totals["documents"], 1.0)
         row = {key: totals[key] / denom for key in ("loss", "p2", "mention", "planner")}
         row["epoch"] = epoch
@@ -194,6 +200,63 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
+def _p3_doc_loss_from_encoded(
+    sentence_repr: torch.Tensor,
+    encoded: EncoderOutput,
+    evidence_head: EvidenceHead,
+    pointer_head: PointerHead,
+    type_embedding: nn.Embedding,
+    role_embedding: nn.Embedding,
+    mention_crf: MentionCRF,
+    planner: RecordPlanner,
+    document,
+    sentences: list[Sentence],
+    schema: EventSchema,
+    *,
+    lambda_ground_mi: float,
+    lambda_mention: float,
+    lambda_plan: float,
+    k_max: int,
+    device: torch.device,
+) -> dict[str, torch.Tensor] | None:
+    labels = build_evidence_labels(document, sentences, schema)
+    device_labels = _labels_to_device(labels, device)
+    type_logits, role_logits = evidence_head(sentence_repr)
+    ev_loss = evidence_bce_loss(type_logits, role_logits, device_labels)
+    log_rows = []
+    pos_rows = []
+    event_index = {event_type: index for index, event_type in enumerate(labels.event_types)}
+    for (event_type, role, value), indices in labels.pos_sent.items():
+        type_id = event_index[event_type]
+        role_id = labels.roles_by_event_type[event_type].index(role)
+        value_repr = _value_repr(value, sentence_repr.shape[-1], device)
+        log_rows.append(pointer_head(sentence_repr, type_embedding.weight[type_id], role_embedding.weight[role_id], value_repr))
+        pos_rows.append(indices)
+    pointer_loss = pointer_mi_loss(torch.stack(log_rows), pos_rows) if log_rows else sentence_repr.sum() * 0.0
+    p2_loss = ev_loss + lambda_ground_mi * pointer_loss
+    mention_losses = []
+    for sentence in _selected_gold_sentences(labels, sentences):
+        token_repr = _sentence_token_repr(encoded, sentence, sentence_repr.shape[-1], device)
+        if token_repr.shape[0] == 0:
+            continue
+        tokens = _sentence_tokens(encoded, sentence)
+        gold_values = _gold_values_for_sentence(document, sentence, schema)
+        bio = torch.tensor([build_bio_labels(sentence, tokens, gold_values)], dtype=torch.long, device=device)
+        mask = torch.ones_like(bio, dtype=torch.bool)
+        mention_losses.append(mention_crf.forward_loss(token_repr.unsqueeze(0), bio, mask))
+    mention_loss = torch.stack(mention_losses).mean() if mention_losses else sentence_repr.sum() * 0.0
+    plan_losses = []
+    global_repr = sentence_repr.mean(dim=0).unsqueeze(0)
+    for type_id, event_type in enumerate(schema.event_roles):
+        logits = planner(global_repr, torch.tensor([type_id], device=device))
+        target = torch.tensor([RecordPlanner.gold_n_t(document.records, event_type)], dtype=torch.long, device=device)
+        loss, _ = planner_loss(logits, target, k_max=k_max)
+        plan_losses.append(loss)
+    plan_loss = torch.stack(plan_losses).mean() if plan_losses else sentence_repr.sum() * 0.0
+    total = p2_loss + lambda_mention * mention_loss + lambda_plan * plan_loss
+    return {"loss": total, "p2": p2_loss.detach(), "mention": mention_loss.detach(), "planner": plan_loss.detach()}
+
+
 def _p3_document_loss(
     encoder: nn.Module,
     evidence_head: EvidenceHead,
@@ -217,44 +280,16 @@ def _p3_document_loss(
         return None
     encoded = encoder.encode_document(text, sentences)
     sentence_repr = encoded.sentence_repr.to(device)
-    labels = build_evidence_labels(document, sentences, schema)
-    device_labels = _labels_to_device(labels, device)
-    type_logits, role_logits = evidence_head(sentence_repr)
-    ev_loss = evidence_bce_loss(type_logits, role_logits, device_labels)
-
-    log_rows = []
-    pos_rows = []
-    event_index = {event_type: index for index, event_type in enumerate(labels.event_types)}
-    for (event_type, role, value), indices in labels.pos_sent.items():
-        type_id = event_index[event_type]
-        role_id = labels.roles_by_event_type[event_type].index(role)
-        value_repr = _value_repr(value, sentence_repr.shape[-1], device)
-        log_rows.append(pointer_head(sentence_repr, type_embedding.weight[type_id], role_embedding.weight[role_id], value_repr))
-        pos_rows.append(indices)
-    pointer_loss = pointer_mi_loss(torch.stack(log_rows), pos_rows) if log_rows else sentence_repr.sum() * 0.0
-    p2_loss = ev_loss + lambda_ground_mi * pointer_loss
-
-    mention_losses = []
-    for sentence in _selected_gold_sentences(labels, sentences):
-        token_repr = _sentence_token_repr(encoded, sentence, sentence_repr.shape[-1], device)
-        if token_repr.shape[0] == 0:
-            continue
-        tokens = _sentence_tokens(encoded, sentence)
-        gold_values = _gold_values_for_sentence(document, sentence, schema)
-        bio = torch.tensor([build_bio_labels(sentence, tokens, gold_values)], dtype=torch.long, device=device)
-        mask = torch.ones_like(bio, dtype=torch.bool)
-        mention_losses.append(mention_crf.forward_loss(token_repr.unsqueeze(0), bio, mask))
-    mention_loss = torch.stack(mention_losses).mean() if mention_losses else sentence_repr.sum() * 0.0
-
-    plan_losses = []
-    for type_id, event_type in enumerate(schema.event_roles):
-        logits = planner(sentence_repr.mean(dim=0).unsqueeze(0), torch.tensor([type_id], device=device))
-        target = torch.tensor([RecordPlanner.gold_n_t(document.records, event_type)], dtype=torch.long, device=device)
-        loss, _skipped = planner_loss(logits, target, k_max=k_max)
-        plan_losses.append(loss)
-    plan_loss = torch.stack(plan_losses).mean() if plan_losses else sentence_repr.sum() * 0.0
-    total = p2_loss + lambda_mention * mention_loss + lambda_plan * plan_loss
-    return {"loss": total, "p2": p2_loss.detach(), "mention": mention_loss.detach(), "planner": plan_loss.detach()}
+    return _p3_doc_loss_from_encoded(
+        sentence_repr, encoded, evidence_head, pointer_head,
+        type_embedding, role_embedding, mention_crf, planner,
+        document, sentences, schema,
+        lambda_ground_mi=lambda_ground_mi,
+        lambda_mention=lambda_mention,
+        lambda_plan=lambda_plan,
+        k_max=k_max,
+        device=device,
+    )
 
 
 def _evaluate_mentions(

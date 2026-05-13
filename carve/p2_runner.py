@@ -14,9 +14,9 @@ import torch
 from torch import nn
 
 from carve.datasets import load_duee_documents, multi_event_subset
-from carve.encoder import build_encoder
+from carve.encoder import EncoderOutput, build_encoder
 from carve.p2_heads import EvidenceHead, PointerHead, build_evidence_labels, evidence_bce_loss, pointer_mi_loss
-from carve.text_segmentation import split_sentences
+from carve.text_segmentation import Sentence, split_sentences
 from evaluator.canonical.normalize import normalize_text
 from evaluator.canonical.schema import EventSchema
 
@@ -95,35 +95,46 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
             return (step + 1) / warmup_steps
         return 1.0
 
-    grad_accum = max(args.grad_accum, 1)
+    doc_batch = max(args.grad_accum, 1)
     global_step = 0
     history = []
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(1, args.max_epochs + 1):
         random.shuffle(train_docs)
         total = {"loss": 0.0, "evidence_bce": 0.0, "pointer_mi": 0.0, "documents": 0.0}
-        accum_count = 0
-        for document in train_docs:
-            metrics = _p2_document_loss(
-                encoder,
-                evidence_head,
-                pointer_head,
-                type_embedding,
-                role_embedding,
-                document,
-                schema,
-                lambda_ground_mi=args.lambda_ground_mi,
-                device=device,
-            )
-            if metrics is None:
+        for batch_start in range(0, len(train_docs), doc_batch):
+            batch = train_docs[batch_start : batch_start + doc_batch]
+            # Collect all sentences across the document batch.
+            batch_meta: list[tuple[Any, list[Sentence], int, int]] = []
+            all_sentences: list[Sentence] = []
+            for doc in batch:
+                text = _document_text(doc)
+                sentences = split_sentences(text)
+                if sentences:
+                    s = len(all_sentences)
+                    all_sentences.extend(sentences)
+                    batch_meta.append((doc, sentences, s, len(all_sentences)))
+            if not all_sentences:
                 continue
-            (metrics["loss"] / grad_accum).backward()
-            accum_count += 1
-            total["loss"] += float(metrics["loss"].detach().cpu())
-            total["evidence_bce"] += float(metrics["evidence_bce"].detach().cpu())
-            total["pointer_mi"] += float(metrics["pointer_mi"].detach().cpu())
-            total["documents"] += 1.0
-            if accum_count % grad_accum == 0:
+            # One RoBERTa forward for all sentences in this document batch.
+            per_sent = encoder.encode_many_sentences(all_sentences)
+            batch_loss = None
+            n_valid = 0
+            for doc, sentences, s_start, s_end in batch_meta:
+                sent_repr = torch.stack([per_sent[i].sentence_repr for i in range(s_start, s_end)]).to(device)
+                metrics = _p2_doc_loss_from_sent_repr(
+                    sent_repr, evidence_head, pointer_head, type_embedding, role_embedding,
+                    doc, sentences, schema, lambda_ground_mi=args.lambda_ground_mi, device=device,
+                )
+                if metrics is None:
+                    continue
+                batch_loss = metrics["loss"] if batch_loss is None else batch_loss + metrics["loss"]
+                n_valid += 1
+                total["evidence_bce"] += float(metrics["evidence_bce"].cpu())
+                total["pointer_mi"] += float(metrics["pointer_mi"].cpu())
+                total["documents"] += 1.0
+            if batch_loss is not None and n_valid > 0:
+                (batch_loss / n_valid).backward()
                 if args.grad_clip > 0:
                     torch.nn.utils.clip_grad_norm_(parameters, max_norm=args.grad_clip)
                 scale = _lr_scale(global_step)
@@ -132,15 +143,7 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
                 global_step += 1
-        if accum_count % grad_accum != 0:
-            if args.grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_(parameters, max_norm=args.grad_clip)
-            scale = _lr_scale(global_step)
-            for group in optimizer.param_groups:
-                group["lr"] = group["initial_lr"] * scale
-            optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
-            global_step += 1
+                total["loss"] += float(batch_loss.detach().cpu())
         denom = max(total["documents"], 1.0)
         row = {
             "epoch": epoch,
@@ -176,6 +179,36 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
     }
     _write_json(run_dir / "summary.json", report)
     return report
+
+
+def _p2_doc_loss_from_sent_repr(
+    sentence_repr: torch.Tensor,
+    evidence_head: EvidenceHead,
+    pointer_head: PointerHead,
+    type_embedding: nn.Embedding,
+    role_embedding: nn.Embedding,
+    document,
+    sentences: list[Sentence],
+    schema: EventSchema,
+    *,
+    lambda_ground_mi: float,
+    device: torch.device,
+) -> dict[str, torch.Tensor] | None:
+    labels = build_evidence_labels(document, sentences, schema)
+    type_logits, role_logits = evidence_head(sentence_repr)
+    ev_loss = evidence_bce_loss(type_logits, role_logits, _labels_to_device(labels, device))
+    log_rows = []
+    pos_rows = []
+    event_index = {event_type: index for index, event_type in enumerate(labels.event_types)}
+    for (event_type, role, value), indices in labels.pos_sent.items():
+        type_id = event_index[event_type]
+        role_id = labels.roles_by_event_type[event_type].index(role)
+        value_repr = _value_repr(value, sentence_repr.shape[-1], device)
+        log_rows.append(pointer_head(sentence_repr, type_embedding.weight[type_id], role_embedding.weight[role_id], value_repr))
+        pos_rows.append(indices)
+    pointer_loss = pointer_mi_loss(torch.stack(log_rows), pos_rows) if log_rows else sentence_repr.sum() * 0.0
+    loss = ev_loss + lambda_ground_mi * pointer_loss
+    return {"loss": loss, "evidence_bce": ev_loss.detach(), "pointer_mi": pointer_loss.detach()}
 
 
 def _p2_document_loss(

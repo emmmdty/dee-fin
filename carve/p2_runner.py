@@ -30,9 +30,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-epochs", type=int, default=50)
-    parser.add_argument("--lr", type=float, default=2e-3, help="lr for heads and embeddings")
+    parser.add_argument("--lr", type=float, default=5e-4, help="lr for heads and embeddings")
     parser.add_argument("--encoder-lr", type=float, default=2e-5, help="lr for encoder fine-tune")
     parser.add_argument("--grad-clip", type=float, default=1.0, help="max_norm for grad clipping; 0 disables")
+    parser.add_argument("--warmup-ratio", type=float, default=0.1, help="linear warmup fraction of total steps")
     parser.add_argument("--lambda-ground-mi", type=float, default=0.5)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--limit-docs", type=int, default=0)
@@ -80,12 +81,20 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
     parameters = encoder_params + head_params
     optimizer = torch.optim.AdamW(
         [
-            {"params": encoder_params, "lr": args.encoder_lr},
-            {"params": head_params, "lr": args.lr},
+            {"params": encoder_params, "lr": args.encoder_lr, "initial_lr": args.encoder_lr},
+            {"params": head_params, "lr": args.lr, "initial_lr": args.lr},
         ],
         weight_decay=1e-4,
     )
+    total_steps = max(args.max_epochs * len(train_docs), 1)
+    warmup_steps = max(int(total_steps * args.warmup_ratio), 1)
 
+    def _lr_scale(step: int) -> float:
+        if step < warmup_steps:
+            return (step + 1) / warmup_steps
+        return 1.0
+
+    global_step = 0
     history = []
     for epoch in range(1, args.max_epochs + 1):
         random.shuffle(train_docs)
@@ -108,7 +117,11 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
             metrics["loss"].backward()
             if args.grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(parameters, max_norm=args.grad_clip)
+            scale = _lr_scale(global_step)
+            for group in optimizer.param_groups:
+                group["lr"] = group["initial_lr"] * scale
             optimizer.step()
+            global_step += 1
             total["loss"] += float(metrics["loss"].detach().cpu())
             total["evidence_bce"] += float(metrics["evidence_bce"].detach().cpu())
             total["pointer_mi"] += float(metrics["pointer_mi"].detach().cpu())

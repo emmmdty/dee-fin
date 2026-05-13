@@ -105,6 +105,7 @@ class PointerHead(nn.Module):
     def __init__(self, hidden_size: int) -> None:
         super().__init__()
         self.query = nn.Linear(hidden_size * 3, hidden_size)
+        self.query_norm = nn.LayerNorm(hidden_size)
 
     def forward(
         self,
@@ -119,7 +120,8 @@ class PointerHead(nn.Module):
             role_emb = role_emb.unsqueeze(0)
         if value_repr.dim() == 1:
             value_repr = value_repr.unsqueeze(0)
-        query = self.query(torch.cat([type_emb, role_emb, value_repr], dim=-1)).squeeze(0)
+        raw_query = self.query(torch.cat([type_emb, role_emb, value_repr], dim=-1)).squeeze(0)
+        query = self.query_norm(raw_query)
         scores = sentence_repr @ query
         return torch.log_softmax(scores, dim=-1)
 

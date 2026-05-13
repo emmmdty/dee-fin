@@ -61,6 +61,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--grad-accum", type=int, default=8)
     parser.add_argument("--routes", default="baseline,carve")
+    parser.add_argument("--share-threshold", type=float, default=0.50)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--limit-docs", type=int, default=0)
     parser.add_argument("--python-bin", default=sys.executable)
@@ -121,6 +122,10 @@ def run_p5b(args: argparse.Namespace) -> dict[str, Any]:
     (run_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), run_dir / "checkpoints" / "allocation_diagnostic.pt")
 
+    candidate_recall = _compute_candidate_recall(dev_docs, lexicon)
+    _write_json(run_dir / "diagnostics" / "candidate_recall.json", candidate_recall)
+    print(json.dumps({"stage": "candidate_recall", **candidate_recall}, ensure_ascii=False), flush=True)
+
     routes = [route.strip() for route in args.routes.split(",") if route.strip()]
     gold_path = run_dir / "canonical" / "dev.gold.jsonl"
     write_canonical_jsonl(gold_path, dev_docs)
@@ -134,6 +139,7 @@ def run_p5b(args: argparse.Namespace) -> dict[str, Any]:
             schema=schema,
             lexicon=lexicon,
             device=device,
+            share_threshold=args.share_threshold,
         )
         pred_path = run_dir / "canonical" / f"dev.{route}.pred.jsonl"
         write_canonical_jsonl(pred_path, pred_rows)
@@ -275,6 +281,7 @@ def _predict_route(
     schema: EventSchema,
     lexicon: dict[str, dict[str, dict[str, int]]],
     device: torch.device,
+    share_threshold: float = 0.50,
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
     rows = []
     candidate_total = 0
@@ -282,6 +289,8 @@ def _predict_route(
     for document in documents:
         events = []
         for event_type, roles in schema.event_roles.items():
+            if not _type_gate(document, event_type):
+                continue
             role_candidates = {
                 role: generate_inference_candidates(document, lexicon, event_type=event_type, role=role)
                 for role in roles
@@ -289,7 +298,7 @@ def _predict_route(
             role_candidates = {role: candidates for role, candidates in role_candidates.items() if candidates}
             if not role_candidates:
                 continue
-            record_count = _estimate_record_count(document, event_type, role_candidates)
+            record_count = _estimate_record_count(document, event_type)
             records = [defaultdict(list) for _ in range(record_count)]
             for role, candidates in role_candidates.items():
                 candidate_total += len(candidates)
@@ -315,7 +324,7 @@ def _predict_route(
                         continue
                     if share_probs[row_index] >= 0.5:
                         for column_index, score in enumerate(row[:-1]):
-                            if score >= 0.30:
+                            if score >= share_threshold:
                                 records[column_index][role].append(candidate.value)
                     else:
                         records[best_index][role].append(candidate.value)
@@ -393,14 +402,40 @@ def _candidate_feature_matrix(document: DueeDocument, candidates: list[Candidate
     return torch.tensor(features, dtype=torch.float32) if features else torch.zeros((0, 7), dtype=torch.float32)
 
 
-def _estimate_record_count(
-    document: DueeDocument,
-    event_type: str,
-    role_candidates: dict[str, list[CandidateMention]],
-) -> int:
+def _compute_candidate_recall(
+    documents: list[DueeDocument],
+    lexicon: dict[str, dict[str, dict[str, int]]],
+) -> dict[str, object]:
+    total = 0
+    covered = 0
+    for document in documents:
+        for record in document.records:
+            event_type = normalize_text(record.event_type)
+            for role, values in record.arguments.items():
+                normalized_role = normalize_text(role)
+                candidates = generate_inference_candidates(
+                    document, lexicon, event_type=event_type, role=normalized_role
+                )
+                candidate_values = {c.value for c in candidates}
+                for value in values:
+                    total += 1
+                    if normalize_text(value) in candidate_values:
+                        covered += 1
+    return {
+        "candidate_recall": round(covered / max(total, 1), 6),
+        "covered_gold_args": covered,
+        "total_gold_args": total,
+    }
+
+
+def _estimate_record_count(document: DueeDocument, event_type: str) -> int:
     trigger_count = document.text.count(event_type) + document.title.count(event_type)
-    max_role_count = max((len(candidates) for candidates in role_candidates.values()), default=1)
-    return max(1, min(3, max(trigger_count, min(max_role_count, 2))))
+    return max(1, min(3, trigger_count))
+
+
+def _type_gate(document: DueeDocument, event_type: str) -> bool:
+    haystack = normalize_text(f"{document.title}\n{document.text}")
+    return normalize_text(event_type) in haystack
 
 
 def _run_unified_strict(

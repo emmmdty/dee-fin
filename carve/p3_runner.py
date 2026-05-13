@@ -33,7 +33,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-epochs", type=int, default=50)
-    parser.add_argument("--lr", type=float, default=2e-3)
+    parser.add_argument("--lr", type=float, default=2e-3, help="lr for heads and embeddings")
+    parser.add_argument("--encoder-lr", type=float, default=2e-5, help="lr for encoder fine-tune")
+    parser.add_argument("--grad-clip", type=float, default=1.0, help="max_norm for grad clipping; 0 disables")
     parser.add_argument("--lambda-ground-mi", type=float, default=0.5)
     parser.add_argument("--lambda-mention", type=float, default=1.0)
     parser.add_argument("--lambda-plan", type=float, default=1.0)
@@ -76,10 +78,23 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
     role_embedding = nn.Embedding(max(max_roles, 1), hidden_size).to(device)
     mention_crf = MentionCRF(hidden_size=hidden_size).to(device)
     planner = RecordPlanner(hidden_size=hidden_size, num_event_types=max(len(schema.event_roles), 1), k_max=args.k_max).to(device)
-    parameters = list(encoder.parameters()) + list(evidence_head.parameters()) + list(pointer_head.parameters())
-    parameters += list(type_embedding.parameters()) + list(role_embedding.parameters())
-    parameters += list(mention_crf.parameters()) + list(planner.parameters())
-    optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=1e-4)
+    head_params = (
+        list(evidence_head.parameters())
+        + list(pointer_head.parameters())
+        + list(type_embedding.parameters())
+        + list(role_embedding.parameters())
+        + list(mention_crf.parameters())
+        + list(planner.parameters())
+    )
+    encoder_params = list(encoder.parameters())
+    parameters = encoder_params + head_params
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": encoder_params, "lr": args.encoder_lr},
+            {"params": head_params, "lr": args.lr},
+        ],
+        weight_decay=1e-4,
+    )
 
     history = []
     for epoch in range(1, args.max_epochs + 1):
@@ -106,6 +121,8 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
                 continue
             optimizer.zero_grad(set_to_none=True)
             metrics["loss"].backward()
+            if args.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(parameters, max_norm=args.grad_clip)
             optimizer.step()
             for key in ("loss", "p2", "mention", "planner"):
                 totals[key] += float(metrics[key].detach().cpu())
@@ -115,6 +132,7 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
         row["epoch"] = epoch
         history.append(row)
         print(json.dumps(row, ensure_ascii=False), flush=True)
+        _write_json(run_dir / "diagnostics" / "p3_train_history.json", history)
 
     mention_metrics = _evaluate_mentions(encoder, mention_crf, dev_docs, schema, device)
     planner_metrics = _evaluate_planner(encoder, planner, dev_docs, schema, device, args.k_max)

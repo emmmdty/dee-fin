@@ -30,7 +30,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-epochs", type=int, default=50)
-    parser.add_argument("--lr", type=float, default=2e-3)
+    parser.add_argument("--lr", type=float, default=2e-3, help="lr for heads and embeddings")
+    parser.add_argument("--encoder-lr", type=float, default=2e-5, help="lr for encoder fine-tune")
+    parser.add_argument("--grad-clip", type=float, default=1.0, help="max_norm for grad clipping; 0 disables")
     parser.add_argument("--lambda-ground-mi", type=float, default=0.5)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--limit-docs", type=int, default=0)
@@ -68,9 +70,21 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
     pointer_head = PointerHead(hidden_size).to(device)
     type_embedding = nn.Embedding(max(len(schema.event_roles), 1), hidden_size).to(device)
     role_embedding = nn.Embedding(max(max_roles, 1), hidden_size).to(device)
-    parameters = list(encoder.parameters()) + list(evidence_head.parameters()) + list(pointer_head.parameters())
-    parameters += list(type_embedding.parameters()) + list(role_embedding.parameters())
-    optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=1e-4)
+    head_params = (
+        list(evidence_head.parameters())
+        + list(pointer_head.parameters())
+        + list(type_embedding.parameters())
+        + list(role_embedding.parameters())
+    )
+    encoder_params = list(encoder.parameters())
+    parameters = encoder_params + head_params
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": encoder_params, "lr": args.encoder_lr},
+            {"params": head_params, "lr": args.lr},
+        ],
+        weight_decay=1e-4,
+    )
 
     history = []
     for epoch in range(1, args.max_epochs + 1):
@@ -92,6 +106,8 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
                 continue
             optimizer.zero_grad(set_to_none=True)
             metrics["loss"].backward()
+            if args.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(parameters, max_norm=args.grad_clip)
             optimizer.step()
             total["loss"] += float(metrics["loss"].detach().cpu())
             total["evidence_bce"] += float(metrics["evidence_bce"].detach().cpu())
@@ -106,6 +122,7 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
         }
         history.append(row)
         print(json.dumps(row, ensure_ascii=False), flush=True)
+        _write_json(run_dir / "diagnostics" / "p2_train_history.json", history)
     _write_json(run_dir / "diagnostics" / "p2_train_history.json", history)
     evidence_metrics = _evaluate_p2(encoder, evidence_head, pointer_head, type_embedding, role_embedding, dev_docs, schema, device)
     _write_json(run_dir / "diagnostics" / "evidence_metrics.json", evidence_metrics)

@@ -5,19 +5,25 @@ This directory records staged CARVE experiment design and acceptance criteria fo
 ## Current Status
 
 - Active proposal: CARVE v1.3 in `docs/method/carve_method_design_v1_3.md`
-- Implementation status: P0/P1 closed; later diagnostic CARVE code remains dev-only and is not a full CARVE implementation report
+- Implementation status: P0/P1 closed; P2/P3 local implementation exists with acceptance pending; later diagnostic CARVE code remains dev-only and is not a full CARVE implementation report
 - Evidence currently available in this repository: data splits, evaluator tracks, baseline wrappers, P1 encoder memory measurement, and R5b DuEE-Fin dev diagnostic evidence
 - Deprecated proposal: `docs/method/easv_v1.md` was intentionally removed
 
 ## Phase Route
 
-The minimal validation chain is:
+The original minimal validation chain was:
 
 ```text
 P0 -> P1 -> P4 -> P5a -> P5b
 ```
 
-Later phases P2, P3, P6, P7, P8, and P9 should not be expanded into implementation work until the P5b diagnostic gate supports continuing CARVE.
+The 2026-05-13 P5b diagnostics exposed candidate generation and allocation-feature bottlenecks, so P2/P3 are now tracked as local implementation phases before revisiting P5b:
+
+```text
+P0 -> P1 -> P4 -> P5a -> P5b diagnostics -> P2 -> P3 -> P5b rerun
+```
+
+P6, P7, P8, and P9 should not be expanded into implementation work until P2/P3 acceptance and the follow-up P5b rerun support continuing CARVE.
 
 ## Phase Gate Rules
 
@@ -33,6 +39,8 @@ Later phases P2, P3, P6, P7, P8, and P9 should not be expanded into implementati
 |---|---|---|
 | P0 | `p0_documentation_freeze.md` | Completed / accepted |
 | P1 | `p1_memory_measurement_plan.md` | Completed / measured; evidence in `docs/measurements/p1_memory.md` |
+| P2 | `p2_evidence_pointer_plan.md` | Implemented locally; server smoke completed; acceptance pending |
+| P3 | `p3_mention_planner_plan.md` | Implemented locally; server smoke completed; acceptance pending |
 | P4 | `p4_allocation_toy_validation_plan.md` | Completed / accepted as toy behavior only |
 | P5a | `p5a_edag_toy_gate_plan.md` | Completed / accepted as toy behavior only |
 | P5b | `p5b_dev_diagnostic_gate_plan.md` | Planned, not run |

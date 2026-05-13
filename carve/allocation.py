@@ -20,6 +20,7 @@ class CandidateMention:
     end: int = -1
     source: str = "text"
     oracle_injected: bool = False
+    raw_span: str | None = None
 
 
 @dataclass(frozen=True)

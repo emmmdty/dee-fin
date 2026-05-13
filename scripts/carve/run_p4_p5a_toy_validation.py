@@ -10,7 +10,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from carve.allocation import p5a_toy_comparison
+from carve.allocation import p4_toy_validation_summary, p5a_toy_comparison
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -19,6 +19,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     payload = {
         "status": "toy_behavior_only",
+        "p4": p4_toy_validation_summary(),
         "p5a": p5a_toy_comparison(),
         "non_goals": ["no dev scoring", "no model training", "no paper main-table claim"],
     }

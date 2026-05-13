@@ -104,6 +104,122 @@ def l_alloc(probs: torch.Tensor, target: torch.Tensor, *, positive_coverage_mu: 
     return loss
 
 
+def p4_toy_validation_summary() -> dict[str, object]:
+    records = [
+        CanonicalEventRecord(
+            document_id="doc1",
+            event_type="质押",
+            record_id="r2",
+            arguments={"质押方": ["甲公司"], "质权方": ["乙银行"]},
+        ),
+        CanonicalEventRecord(
+            document_id="doc1",
+            event_type="质押",
+            record_id="r1",
+            arguments={"质押方": ["甲公司"], "质权方": ["丙银行"]},
+        ),
+    ]
+    shared_candidates = [
+        CandidateMention(event_type="质押", role="质押方", value="甲公司", start=3, end=6),
+        CandidateMention(event_type="质押", role="质押方", value="无关方", start=9, end=12),
+    ]
+    shared_batch = build_allocation_targets(
+        records=records,
+        event_type="质押",
+        role="质押方",
+        candidates=shared_candidates,
+        oracle_inject=False,
+    )
+    repeated_shared_batch = build_allocation_targets(
+        records=records,
+        event_type="质押",
+        role="质押方",
+        candidates=shared_candidates,
+        oracle_inject=False,
+    )
+    single_batch = build_allocation_targets(
+        records=records,
+        event_type="质押",
+        role="质权方",
+        candidates=[CandidateMention(event_type="质押", role="质权方", value="丙银行", start=13, end=16)],
+        oracle_inject=False,
+    )
+    oracle_training = build_allocation_targets(
+        records=records,
+        event_type="质押",
+        role="质权方",
+        candidates=[],
+        oracle_inject=True,
+    )
+    oracle_inference = build_allocation_targets(
+        records=records,
+        event_type="质押",
+        role="质权方",
+        candidates=[],
+        oracle_inject=False,
+    )
+
+    logits = torch.tensor([[2.0, 2.0, -2.0], [-1.0, -1.0, 3.0]], dtype=torch.float32)
+    probs = sinkhorn(logits, iterations=30)
+    target = torch.tensor([[1.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.float32)
+    marginal_loss = -torch.log((probs * target).sum(dim=1).clamp_min(1e-8)).mean()
+    mu_zero_loss = l_alloc(probs, target, positive_coverage_mu=0.0)
+    coverage_loss = l_alloc(probs, target, positive_coverage_mu=0.5)
+
+    deterministic = _batch_signature(shared_batch) == _batch_signature(repeated_shared_batch)
+    training_oracle_values = [candidate.value for candidate in oracle_training.candidates if candidate.oracle_injected]
+    inference_candidates = [candidate.value for candidate in oracle_inference.candidates]
+    target_cases = {
+        "shared_surface": {
+            "candidate": shared_batch.candidates[0].value,
+            "target_row": shared_batch.target.tolist()[0],
+            "share_label": shared_batch.share_labels[0],
+        },
+        "null_candidate": {
+            "candidate": shared_batch.candidates[1].value,
+            "target_row": shared_batch.target.tolist()[1],
+            "share_label": shared_batch.share_labels[1],
+        },
+        "single_positive": {
+            "candidate": single_batch.candidates[0].value,
+            "target_row": single_batch.target.tolist()[0],
+            "share_label": single_batch.share_labels[0],
+        },
+    }
+    acceptance_checks = {
+        "repeated_surface_shared_by_two_records": target_cases["shared_surface"]["target_row"] == [1.0, 1.0, 0.0],
+        "non_shared_value_single_positive_column": target_cases["single_positive"]["target_row"] == [1.0, 0.0, 0.0],
+        "unmatched_candidate_assigned_to_null": target_cases["null_candidate"]["target_row"] == [0.0, 0.0, 1.0],
+        "deterministic_repeated_execution": deterministic,
+        "oracle_injected_candidate_train_only": bool(training_oracle_values) and not inference_candidates,
+        "mu_zero_disables_positive_coverage": bool(torch.allclose(mu_zero_loss, marginal_loss)),
+        "share_gate_surface_only": shared_batch.share_labels == [True, False] and single_batch.share_labels == [False],
+    }
+    return {
+        "status": "toy_behavior_only",
+        "record_order": [record.record_id for record in shared_batch.records],
+        "target_cases": target_cases,
+        "oracle_injection": {
+            "training_oracle_values": training_oracle_values,
+            "inference_candidates": inference_candidates,
+        },
+        "sinkhorn": {
+            "matrix": probs.tolist(),
+            "row_sums": probs.sum(dim=1).tolist(),
+            "row_sums_close_to_one": bool(torch.allclose(probs.sum(dim=1), torch.ones(2), atol=1e-4)),
+        },
+        "loss": {
+            "mu_zero": float(mu_zero_loss),
+            "marginal_only": float(marginal_loss),
+            "with_positive_coverage": float(coverage_loss),
+            "mu_zero_equals_marginal": bool(torch.allclose(mu_zero_loss, marginal_loss)),
+        },
+        "acceptance_checks": acceptance_checks,
+        "accepted": all(acceptance_checks.values()),
+        "non_goals": ["no dev scoring", "no test scoring", "no model training", "no paper main-table claim"],
+    }
+
+
 def p5a_toy_comparison() -> dict[str, object]:
     baseline_scores = {"wrong-record": 0.72, "correct-record": 0.65}
     allocation_scores = {"wrong-record": 0.18, "correct-record": 0.91}
@@ -126,6 +242,15 @@ def _sort_records(records: Iterable[CanonicalEventRecord]) -> list[CanonicalEven
 def _record_sort_key(record: CanonicalEventRecord) -> tuple[str, str]:
     arguments = json.dumps(record.arguments, ensure_ascii=False, sort_keys=True)
     return (record.record_id or "", arguments)
+
+
+def _batch_signature(batch: AllocationBatch) -> tuple[object, ...]:
+    return (
+        [record.record_id for record in batch.records],
+        [(candidate.value, candidate.start, candidate.end, candidate.source) for candidate in batch.candidates],
+        batch.target.tolist(),
+        batch.share_labels,
+    )
 
 
 def _normalize_candidate(candidate: CandidateMention, event_type: str, role: str) -> CandidateMention:

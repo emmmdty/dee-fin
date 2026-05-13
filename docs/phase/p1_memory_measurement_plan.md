@@ -37,3 +37,27 @@ P1 is accepted only if:
 - No test-set evaluation.
 - No Qwen verifier work.
 - No claim that a template file is measured evidence.
+
+## Closeout
+
+Status: completed / measured.
+
+P1 measured encoder forward-pass memory on `gpu-4090` using project-local safetensors paths and offline/local-only loading. It did not run training, inference evaluation, final-test scoring, or Qwen verifier work.
+
+Measured evidence:
+
+- Report: `docs/measurements/p1_memory.md`.
+- Host: `ubuntu`.
+- Server Python: `/home/TJK/.conda/envs/tjk-feg/bin/python`.
+- Measured code commit recorded by the command: `3b5338790c3844e2e52a90776f32d99983e02dc8`.
+- Evidence-file commit: `1251e8416d8249db5d2808326d2710ce83611c9a`.
+
+Measured peak reserved memory at sequence length 512, batch size 1:
+
+| Model | Status | Peak allocated GB | Peak reserved GB |
+|---|---:|---:|---:|
+| chinese-roberta-wwm-ext | ok | 0.407 | 0.455 |
+| lawformer | ok | 0.531 | 0.945 |
+| longformer-chinese | ok | 0.419 | 0.965 |
+
+Fallback policy remains unchanged: apply CARVE v1.3 fallback decisions only after measured constraints are considered, and do not promote P1 memory measurements into training or performance claims.

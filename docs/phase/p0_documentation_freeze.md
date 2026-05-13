@@ -43,6 +43,21 @@ P0 is accepted only if:
 - Existing local unit checks pass.
 - The phase is committed and `git status --short` is empty.
 
+## Closeout
+
+Status: completed / accepted.
+
+P0 was a documentation-freeze phase. Its accepted scope was to freeze the CARVE v1.3 repository contract and method-document boundaries without modifying `data/`, `baseline/`, model artifacts, or run artifacts.
+
+Closeout evidence:
+
+- Phase document: `docs/phase/p0_documentation_freeze.md`.
+- Method proposal: `docs/method/carve_method_design_v1_3.md`.
+- Method index: `docs/method/README.md`.
+- Phase index: `docs/phase/README.md`.
+
+Boundary note: later diagnostic CARVE code and P1 measurement evidence are outside P0. They do not change the fact that P0 itself was accepted as a docs-only freeze.
+
 ## Validation Commands
 
 ```bash

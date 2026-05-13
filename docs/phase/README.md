@@ -5,8 +5,8 @@ This directory records staged CARVE experiment design and acceptance criteria fo
 ## Current Status
 
 - Active proposal: CARVE v1.3 in `docs/method/carve_method_design_v1_3.md`
-- Implementation status: no CARVE model components implemented yet
-- Evidence currently available in this repository: data splits, evaluator tracks, and baseline wrappers
+- Implementation status: P0/P1 closed; later diagnostic CARVE code remains dev-only and is not a full CARVE implementation report
+- Evidence currently available in this repository: data splits, evaluator tracks, baseline wrappers, and P1 encoder memory measurement
 - Deprecated proposal: `docs/method/easv_v1.md` was intentionally removed
 
 ## Phase Route
@@ -31,8 +31,8 @@ Later phases P2, P3, P6, P7, P8, and P9 should not be expanded into implementati
 
 | Phase | Document | Status |
 |---|---|---|
-| P0 | `p0_documentation_freeze.md` | Documentation phase in this commit |
-| P1 | `p1_memory_measurement_plan.md` | Planned, not measured |
+| P0 | `p0_documentation_freeze.md` | Completed / accepted |
+| P1 | `p1_memory_measurement_plan.md` | Completed / measured; evidence in `docs/measurements/p1_memory.md` |
 | P4 | `p4_allocation_toy_validation_plan.md` | Planned, not implemented |
 | P5a | `p5a_edag_toy_gate_plan.md` | Planned, not implemented |
 | P5b | `p5b_dev_diagnostic_gate_plan.md` | Planned, not run |

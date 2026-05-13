@@ -81,30 +81,41 @@ class RobertaSentenceEncoder(nn.Module):
         return self.model.parameters(recurse=recurse)
 
     def encode_document(self, text: str, sentences: list[Sentence]) -> EncoderOutput:
-        token_reprs = []
-        token_offsets: list[TokenOffset] = []
-        sentence_reprs = []
-        for sentence in sentences:
-            encoded = self.tokenizer(
-                sentence.text,
-                return_offsets_mapping=True,
-                return_tensors="pt",
-                truncation=True,
-                max_length=512,
+        if not sentences:
+            empty = torch.zeros((0, self.hidden_size), dtype=torch.float32, device=self.device)
+            return EncoderOutput(
+                token_repr=empty,
+                token_offsets=[],
+                sentence_repr=empty,
+                global_repr=torch.zeros((self.hidden_size,), dtype=torch.float32, device=self.device),
             )
-            offsets = encoded.pop("offset_mapping")[0].tolist()
-            encoded = {key: value.to(self.device) for key, value in encoded.items()}
-            output = self.model(**encoded).last_hidden_state[0]
-            valid_indices = [
-                index
-                for index, (start, end) in enumerate(offsets)
-                if end > start and encoded["attention_mask"][0, index].item()
-            ]
+        # Tokenize all sentences in one call; RoBERTa runs a single batched forward.
+        encoded = self.tokenizer(
+            [s.text for s in sentences],
+            return_offsets_mapping=True,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+            padding=True,
+        )
+        all_offsets = encoded.pop("offset_mapping").tolist()
+        attention_mask = encoded["attention_mask"]
+        encoded = {k: v.to(self.device) for k, v in encoded.items()}
+        all_outputs = self.model(**encoded).last_hidden_state  # [N_sent, seq_len, hidden]
+        token_reprs: list[torch.Tensor] = []
+        token_offsets: list[TokenOffset] = []
+        sentence_reprs: list[torch.Tensor] = []
+        for sent_idx, sentence in enumerate(sentences):
+            offsets = all_offsets[sent_idx]
+            output = all_outputs[sent_idx]
+            attn = attention_mask[sent_idx]
+            valid_indices = [i for i, (s, e) in enumerate(offsets) if e > s and attn[i].item()]
             if valid_indices:
-                index_tensor = torch.tensor(valid_indices, dtype=torch.long, device=output.device)
-                sentence_tokens = output[index_tensor]
+                idx_tensor = torch.tensor(valid_indices, dtype=torch.long, device=output.device)
+                sentence_tokens = output[idx_tensor]
                 sentence_reprs.append(sentence_tokens.mean(dim=0))
-                for token_id, (start, end) in zip(valid_indices, [offsets[index] for index in valid_indices]):
+                for i in valid_indices:
+                    start, end = offsets[i]
                     token_offsets.append(
                         TokenOffset(
                             text=sentence.text[start:end],
@@ -112,19 +123,12 @@ class RobertaSentenceEncoder(nn.Module):
                             char_end=sentence.char_start + end,
                         )
                     )
-                    token_reprs.append(output[token_id])
+                    token_reprs.append(output[i])
             else:
                 sentence_reprs.append(torch.zeros((self.hidden_size,), dtype=output.dtype, device=output.device))
-        if token_reprs:
-            token_repr = torch.stack(token_reprs)
-        else:
-            token_repr = torch.zeros((0, self.hidden_size), dtype=torch.float32, device=self.device)
-        if sentence_reprs:
-            sentence_repr = torch.stack(sentence_reprs)
-            global_repr = sentence_repr.mean(dim=0)
-        else:
-            sentence_repr = torch.zeros((0, self.hidden_size), dtype=torch.float32, device=self.device)
-            global_repr = torch.zeros((self.hidden_size,), dtype=torch.float32, device=self.device)
+        token_repr = torch.stack(token_reprs) if token_reprs else torch.zeros((0, self.hidden_size), dtype=torch.float32, device=self.device)
+        sentence_repr = torch.stack(sentence_reprs)
+        global_repr = sentence_repr.mean(dim=0)
         return EncoderOutput(token_repr=token_repr, token_offsets=token_offsets, sentence_repr=sentence_repr, global_repr=global_repr)
 
 

@@ -35,6 +35,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--grad-clip", type=float, default=1.0, help="max_norm for grad clipping; 0 disables")
     parser.add_argument("--warmup-ratio", type=float, default=0.1, help="linear warmup fraction of total steps")
     parser.add_argument("--lambda-ground-mi", type=float, default=0.5)
+    parser.add_argument("--grad-accum", type=int, default=8, help="accumulate gradients over this many docs before optimizer step")
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--limit-docs", type=int, default=0)
     return parser
@@ -94,11 +95,14 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
             return (step + 1) / warmup_steps
         return 1.0
 
+    grad_accum = max(args.grad_accum, 1)
     global_step = 0
     history = []
+    optimizer.zero_grad(set_to_none=True)
     for epoch in range(1, args.max_epochs + 1):
         random.shuffle(train_docs)
         total = {"loss": 0.0, "evidence_bce": 0.0, "pointer_mi": 0.0, "documents": 0.0}
+        accum_count = 0
         for document in train_docs:
             metrics = _p2_document_loss(
                 encoder,
@@ -113,19 +117,30 @@ def run_p2(args: argparse.Namespace) -> dict[str, Any]:
             )
             if metrics is None:
                 continue
-            optimizer.zero_grad(set_to_none=True)
-            metrics["loss"].backward()
+            (metrics["loss"] / grad_accum).backward()
+            accum_count += 1
+            total["loss"] += float(metrics["loss"].detach().cpu())
+            total["evidence_bce"] += float(metrics["evidence_bce"].detach().cpu())
+            total["pointer_mi"] += float(metrics["pointer_mi"].detach().cpu())
+            total["documents"] += 1.0
+            if accum_count % grad_accum == 0:
+                if args.grad_clip > 0:
+                    torch.nn.utils.clip_grad_norm_(parameters, max_norm=args.grad_clip)
+                scale = _lr_scale(global_step)
+                for group in optimizer.param_groups:
+                    group["lr"] = group["initial_lr"] * scale
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                global_step += 1
+        if accum_count % grad_accum != 0:
             if args.grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(parameters, max_norm=args.grad_clip)
             scale = _lr_scale(global_step)
             for group in optimizer.param_groups:
                 group["lr"] = group["initial_lr"] * scale
             optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
             global_step += 1
-            total["loss"] += float(metrics["loss"].detach().cpu())
-            total["evidence_bce"] += float(metrics["evidence_bce"].detach().cpu())
-            total["pointer_mi"] += float(metrics["pointer_mi"].detach().cpu())
-            total["documents"] += 1.0
         denom = max(total["documents"], 1.0)
         row = {
             "epoch": epoch,

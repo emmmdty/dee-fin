@@ -2,7 +2,7 @@
 
 ## Purpose
 
-P3 replaces regex-dominated candidate generation and trigger-count record planning with a mention CRF and learned record-count planner. It implements CARVE v1.3 Section 3.4 interfaces needed before revisiting P5b.
+P3 replaces regex-dominated candidate generation and trigger-count record planning with a mention CRF and learned record-count planner. It implements CARVE v1.3 Section 3.4 and Section 3.6 interfaces needed before revisiting P5b.
 
 ## Components
 
@@ -11,7 +11,7 @@ P3 covers:
 - character-offset tokenization helpers in `carve.tokenization`;
 - BIO label construction over teacher-forced gold evidence sentences;
 - a dependency-free PyTorch linear-chain CRF in `carve.p3_mention_crf`;
-- per-document, per-event-type record-count planning in `carve.p3_planner`;
+- per-document, per-event-type type-gate and record-count planning in `carve.p3_planner`;
 - a new `carve.candidates.generate_candidates` interface;
 - lexicon/regex candidate generation preserved as optional fallback;
 - runner entry point `scripts/carve/run_p3_mention_planner.py`;
@@ -25,8 +25,11 @@ P3 covers:
 - Overlapping labels use schema role order as the priority order.
 - CRF decoding is per selected sentence, not document-global.
 - Record planner input is `[global_repr; event_type_emb]`.
-- Planner output is a softmax over `n = 0..K`; `n_t = 0` replaces P5b's string-based type gate.
-- Default `K` is 10 until a dataset-specific train max plus margin is measured.
+- ~~Planner output is a softmax over `n = 0..K`; `n_t = 0` replaces P5b's string-based type gate.~~
+- 2026-05-14 R3 errata: the single softmax decision is withdrawn because it conflicts with CARVE v1.3 Section 3.6. P3 uses a two-stage planner: a binary type gate predicts `present(t, D)`, and a zero-truncated Poisson count head predicts `n_t` only for event types passing the gate.
+- The type gate is trained with `BCEWithLogitsLoss(pos_weight=#negative/#positive)` measured from the actual train documents used by the run.
+- The count planner is trained only on gold-positive `(document, event_type)` pairs with zero-truncated Poisson NLL.
+- `K_clip` is the max train `n_t` measured from the actual train documents used by the run; it is recorded in diagnostics and checkpoint metadata.
 - Training uses gold `n_t`; inference uses predicted `n_t`.
 - CRF token spans are converted to character spans before returning `CandidateMention`.
 - Candidate values are normalized at the candidate-generation boundary; raw spans are retained for diagnostics.
@@ -42,14 +45,17 @@ P3 is accepted only if:
 - server smoke loads the project-local safetensors model with offline/local-only settings;
 - a non-smoke run records `diagnostics/p3_mention_metrics.json`, `diagnostics/p3_planner_metrics.json`, and `checkpoints/p3.pt`;
 - dev mention F1 is at least 0.40 under normalized gold-value matching;
-- planner per-event-type MAE is at most 1.0;
-- type-gate recall for `n_t > 0` is at least 0.90.
+- type gate dev AUC is at least 0.85 and Youden's J calibrated F1 is at least 0.55;
+- count planner dev MAE on the `n_t > 0` subset is at most 0.5;
+- `presence_loss` and `count_loss` each show at least five consecutive epochs of downward trend and at least 2x decrease;
+- after integration into the current pipeline, DuEE-Fin-dev500 `unified_strict_f1` is not lower than the current R3 baseline by more than 0.005 absolute.
 
 ## Validation Commands
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 /home/tjk/miniconda3/envs/feg-dev-py310/bin/python -B -m unittest tests.carve.test_p3_mention_crf tests.carve.test_p3_planner tests.carve.test_p3_candidates_integration -v
 PYTHONDONTWRITEBYTECODE=1 /home/tjk/miniconda3/envs/feg-dev-py310/bin/python -B -m unittest discover -s tests/carve -v
+PYTHONDONTWRITEBYTECODE=1 /home/tjk/miniconda3/envs/feg-dev-py310/bin/python -B -m unittest discover -s tests/evaluator -v
 ```
 
 Server smoke command must run from:
@@ -67,21 +73,25 @@ env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 \
     --data-root data/processed/DuEE-Fin-dev500 \
     --schema data/processed/DuEE-Fin-dev500/schema.json \
     --model-path models/chinese-roberta-wwm-ext_safetensors \
-    --run-dir runs/carve/p3_duee_fin_smoke \
+    --run-dir runs/carve/p3_duee_fin_smoke_r4 \
     --smoke --max-epochs 2
 ```
 
 Expected outputs:
 
-- `runs/carve/p3_duee_fin_smoke/diagnostics/p3_train_history.json`
-- `runs/carve/p3_duee_fin_smoke/diagnostics/p3_mention_metrics.json`
-- `runs/carve/p3_duee_fin_smoke/diagnostics/p3_planner_metrics.json`
-- `runs/carve/p3_duee_fin_smoke/checkpoints/p3.pt`
-- `runs/carve/p3_duee_fin_smoke/summary.json`
+- `runs/carve/p3_duee_fin_smoke_r4/diagnostics/p3_train_history.json`
+- `runs/carve/p3_duee_fin_smoke_r4/diagnostics/p3_mention_metrics.json`
+- `runs/carve/p3_duee_fin_smoke_r4/diagnostics/p3_planner_metrics.json`
+- `runs/carve/p3_duee_fin_smoke_r4/checkpoints/p3.pt`
+- `runs/carve/p3_duee_fin_smoke_r4/summary.json`
+
+The R3 implementation writes `presence_loss`, `count_loss`, `presence_pos_frac`, `presence_pos_weight`, and `k_clip` into `p3_train_history.json`. It writes `type_gate_auc`, `type_gate_f1_youden`, `presence_threshold`, `count_mae_positive`, `k_clip`, and `truncation_rate` into `p3_planner_metrics.json`.
 
 ## Acceptance Result
 
 Status: implemented locally; server smoke completed; acceptance pending.
+
+R3 note: the 2026-05-13 smoke evidence below is historical evidence for the withdrawn single-softmax planner. It remains useful as failure evidence, but it is not R3 two-stage planner acceptance evidence. R3 requires a fresh authorized smoke/non-smoke run before any acceptance claim.
 
 Local implementation, toy smoke tests, and the DuEE-Fin remote smoke were added on 2026-05-13. This is not yet accepted because P2 acceptance and non-smoke threshold runs have not been executed in this closeout.
 

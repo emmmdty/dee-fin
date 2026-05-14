@@ -18,7 +18,7 @@ from carve.encoder import EncoderOutput, build_encoder
 from carve.p2_heads import EvidenceHead, PointerHead, build_evidence_labels, evidence_bce_loss, pointer_mi_loss
 from carve.p2_runner import _document_text, _labels_to_device, _value_repr
 from carve.p3_mention_crf import MentionCRF, build_bio_labels
-from carve.p3_planner import RecordPlanner, planner_loss
+from carve.p3_planner import RecordPlanner, presence_loss, truncated_poisson_argmax, truncated_poisson_nll
 from carve.text_segmentation import Sentence, split_sentences
 from evaluator.canonical.normalize import normalize_optional_text, normalize_text
 from evaluator.canonical.schema import EventSchema
@@ -39,7 +39,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--warmup-ratio", type=float, default=0.1, help="linear warmup fraction of total steps")
     parser.add_argument("--lambda-ground-mi", type=float, default=0.5)
     parser.add_argument("--lambda-mention", type=float, default=1.0)
-    parser.add_argument("--lambda-plan", type=float, default=1.0)
+    parser.add_argument("--lambda-plan", type=float, default=1.0, help="deprecated; kept for old command compatibility")
+    parser.add_argument("--lambda-presence", type=float, default=1.0)
+    parser.add_argument("--lambda-count", type=float, default=1.0)
     parser.add_argument("--k-max", type=int, default=10)
     parser.add_argument("--grad-accum", type=int, default=8, help="accumulate gradients over this many docs before optimizer step")
     parser.add_argument("--smoke", action="store_true")
@@ -69,6 +71,8 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
     if args.smoke:
         train_docs = train_docs[: min(len(train_docs), 16)]
         dev_docs = dev_docs[: min(len(dev_docs), 16)]
+    planner_train_stats = _planner_train_stats(train_docs, schema)
+    k_clip = int(planner_train_stats["k_clip"])
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.model_path != "__toy__" else "cpu")
     encoder = build_encoder(args.model_path, device=device).to(device)
@@ -79,7 +83,7 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
     type_embedding = nn.Embedding(max(len(schema.event_roles), 1), hidden_size).to(device)
     role_embedding = nn.Embedding(max(max_roles, 1), hidden_size).to(device)
     mention_crf = MentionCRF(hidden_size=hidden_size).to(device)
-    planner = RecordPlanner(hidden_size=hidden_size, num_event_types=max(len(schema.event_roles), 1), k_max=args.k_max).to(device)
+    planner = RecordPlanner(hidden_size=hidden_size, num_event_types=max(len(schema.event_roles), 1), k_max=k_clip).to(device)
     head_params = (
         list(evidence_head.parameters())
         + list(pointer_head.parameters())
@@ -108,10 +112,11 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
     grad_accum = max(args.grad_accum, 1)
     global_step = 0
     history = []
+    presence_pos_weight = torch.tensor(float(planner_train_stats["presence_pos_weight"]), dtype=torch.float32, device=device)
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(1, args.max_epochs + 1):
         random.shuffle(train_docs)
-        totals = {"loss": 0.0, "p2": 0.0, "mention": 0.0, "planner": 0.0, "documents": 0.0}
+        totals = {"loss": 0.0, "p2": 0.0, "mention": 0.0, "planner": 0.0, "presence": 0.0, "count": 0.0, "documents": 0.0}
         accum_count = 0
         for document in train_docs:
             # encode_document batches all sentences of this doc in one GPU forward.
@@ -120,15 +125,17 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
                 mention_crf, planner, document, schema,
                 lambda_ground_mi=args.lambda_ground_mi,
                 lambda_mention=args.lambda_mention,
-                lambda_plan=args.lambda_plan,
-                k_max=args.k_max,
+                lambda_presence=args.lambda_presence,
+                lambda_count=args.lambda_count,
+                presence_pos_weight=presence_pos_weight,
+                k_clip=k_clip,
                 device=device,
             )
             if metrics is None:
                 continue
             (metrics["loss"] / grad_accum).backward()
             accum_count += 1
-            for key in ("loss", "p2", "mention", "planner"):
+            for key in ("loss", "p2", "mention", "planner", "presence", "count"):
                 totals[key] += float(metrics[key].detach().cpu())
             totals["documents"] += 1.0
             if accum_count % grad_accum == 0:
@@ -151,13 +158,18 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
             global_step += 1
         denom = max(totals["documents"], 1.0)
         row = {key: totals[key] / denom for key in ("loss", "p2", "mention", "planner")}
+        row["presence_loss"] = totals["presence"] / denom
+        row["count_loss"] = totals["count"] / denom
+        row["presence_pos_frac"] = planner_train_stats["presence_pos_frac"]
+        row["presence_pos_weight"] = planner_train_stats["presence_pos_weight"]
+        row["k_clip"] = k_clip
         row["epoch"] = epoch
         history.append(row)
         print(json.dumps(row, ensure_ascii=False), flush=True)
         _write_json(run_dir / "diagnostics" / "p3_train_history.json", history)
 
     mention_metrics = _evaluate_mentions(encoder, mention_crf, dev_docs, schema, device)
-    planner_metrics = _evaluate_planner(encoder, planner, dev_docs, schema, device, args.k_max)
+    planner_metrics = _evaluate_planner(encoder, planner, dev_docs, schema, device, k_clip)
     _write_json(run_dir / "diagnostics" / "p3_train_history.json", history)
     _write_json(run_dir / "diagnostics" / "p3_mention_metrics.json", mention_metrics)
     _write_json(run_dir / "diagnostics" / "p3_planner_metrics.json", planner_metrics)
@@ -170,6 +182,11 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
             "role_embedding": role_embedding.state_dict(),
             "mention_crf": mention_crf.state_dict(),
             "planner": planner.state_dict(),
+            "planner_metadata": {
+                "k_clip": k_clip,
+                "presence_pos_weight": planner_train_stats["presence_pos_weight"],
+                "presence_threshold": planner_metrics["presence_threshold"],
+            },
         },
         run_dir / "checkpoints" / "p3.pt",
     )
@@ -181,6 +198,7 @@ def run_p3(args: argparse.Namespace) -> dict[str, Any]:
         "history": history,
         "mention_metrics": mention_metrics,
         "planner_metrics": planner_metrics,
+        "planner_train_stats": planner_train_stats,
         "elapsed_seconds": round(time.time() - start_time, 3),
         "non_goals": ["no unified-strict dev scoring", "no hidden-test", "no paper main-table claim"],
     }
@@ -203,8 +221,10 @@ def _p3_doc_loss_from_encoded(
     *,
     lambda_ground_mi: float,
     lambda_mention: float,
-    lambda_plan: float,
-    k_max: int,
+    lambda_presence: float,
+    lambda_count: float,
+    presence_pos_weight: torch.Tensor,
+    k_clip: int,
     device: torch.device,
 ) -> dict[str, torch.Tensor] | None:
     labels = build_evidence_labels(document, sentences, schema)
@@ -233,16 +253,45 @@ def _p3_doc_loss_from_encoded(
         mask = torch.ones_like(bio, dtype=torch.bool)
         mention_losses.append(mention_crf.forward_loss(token_repr.unsqueeze(0), bio, mask))
     mention_loss = torch.stack(mention_losses).mean() if mention_losses else sentence_repr.sum() * 0.0
-    plan_losses = []
-    global_repr = sentence_repr.mean(dim=0).unsqueeze(0)
+    presence_logits = []
+    presence_targets = []
+    count_log_lambdas = []
+    count_targets = []
+    global_repr = encoded.global_repr.to(device).unsqueeze(0)
     for type_id, event_type in enumerate(schema.event_roles):
-        logits = planner(global_repr, torch.tensor([type_id], device=device))
-        target = torch.tensor([RecordPlanner.gold_n_t(document.records, event_type)], dtype=torch.long, device=device)
-        loss, _ = planner_loss(logits, target, k_max=k_max)
-        plan_losses.append(loss)
-    plan_loss = torch.stack(plan_losses).mean() if plan_losses else sentence_repr.sum() * 0.0
-    total = p2_loss + lambda_mention * mention_loss + lambda_plan * plan_loss
-    return {"loss": total, "p2": p2_loss.detach(), "mention": mention_loss.detach(), "planner": plan_loss.detach()}
+        type_tensor = torch.tensor([type_id], device=device)
+        gold_count = RecordPlanner.gold_n_t(document.records, event_type)
+        presence_logits.append(planner.presence_logit(global_repr, type_tensor).reshape(1))
+        presence_targets.append(1.0 if gold_count > 0 else 0.0)
+        if gold_count > 0:
+            count_log_lambdas.append(planner.count_log_lambda(global_repr, type_tensor).reshape(1))
+            count_targets.append(float(gold_count))
+    if presence_logits:
+        presence_logit_tensor = torch.cat(presence_logits)
+        presence_target_tensor = torch.tensor(presence_targets, dtype=torch.float32, device=device)
+        presence_loss_value = presence_loss(
+            presence_logit_tensor,
+            presence_target_tensor,
+            pos_weight=presence_pos_weight,
+        )
+    else:
+        presence_loss_value = sentence_repr.sum() * 0.0
+    if count_log_lambdas:
+        count_log_lambda_tensor = torch.cat(count_log_lambdas)
+        count_target_tensor = torch.tensor(count_targets, dtype=torch.float32, device=device)
+        count_loss_value = truncated_poisson_nll(count_log_lambda_tensor, count_target_tensor)
+    else:
+        count_loss_value = sentence_repr.sum() * 0.0
+    plan_loss = lambda_presence * presence_loss_value + lambda_count * count_loss_value
+    total = p2_loss + lambda_mention * mention_loss + plan_loss
+    return {
+        "loss": total,
+        "p2": p2_loss.detach(),
+        "mention": mention_loss.detach(),
+        "planner": plan_loss.detach(),
+        "presence": presence_loss_value.detach(),
+        "count": count_loss_value.detach(),
+    }
 
 
 def _p3_document_loss(
@@ -258,8 +307,10 @@ def _p3_document_loss(
     *,
     lambda_ground_mi: float,
     lambda_mention: float,
-    lambda_plan: float,
-    k_max: int,
+    lambda_presence: float,
+    lambda_count: float,
+    presence_pos_weight: torch.Tensor,
+    k_clip: int,
     device: torch.device,
 ) -> dict[str, torch.Tensor] | None:
     text = _document_text(document)
@@ -274,8 +325,10 @@ def _p3_document_loss(
         document, sentences, schema,
         lambda_ground_mi=lambda_ground_mi,
         lambda_mention=lambda_mention,
-        lambda_plan=lambda_plan,
-        k_max=k_max,
+        lambda_presence=lambda_presence,
+        lambda_count=lambda_count,
+        presence_pos_weight=presence_pos_weight,
+        k_clip=k_clip,
         device=device,
     )
 
@@ -330,19 +383,41 @@ def _evaluate_mentions(
     }
 
 
+def _planner_train_stats(documents, schema: EventSchema) -> dict[str, float | int]:
+    total = 0
+    positive = 0
+    max_n = 0
+    for document in documents:
+        for event_type in schema.event_roles:
+            n_t = RecordPlanner.gold_n_t(document.records, event_type)
+            total += 1
+            if n_t > 0:
+                positive += 1
+            max_n = max(max_n, n_t)
+    negative = total - positive
+    return {
+        "event_type_pairs": total,
+        "presence_positive": positive,
+        "presence_negative": negative,
+        "presence_pos_frac": round(positive / max(total, 1), 6),
+        "presence_pos_weight": round(negative / positive, 6) if positive else 1.0,
+        "train_max_n_t": max_n,
+        "k_clip": max(max_n, 1),
+    }
+
+
 def _evaluate_planner(
     encoder: nn.Module,
     planner: RecordPlanner,
     documents,
     schema: EventSchema,
     device: torch.device,
-    k_max: int,
+    k_clip: int,
 ) -> dict[str, float]:
-    total_abs = 0.0
-    count = 0
-    positive_gold = 0
-    positive_recalled = 0
-    skipped = 0
+    rows = []
+    positive_abs = 0.0
+    positive_count = 0
+    truncated = 0
     with torch.no_grad():
         for document in documents:
             text = _document_text(document)
@@ -353,22 +428,102 @@ def _evaluate_planner(
             global_repr = encoded.global_repr.to(device)
             for type_id, event_type in enumerate(schema.event_roles):
                 gold = RecordPlanner.gold_n_t(document.records, event_type)
-                if gold > k_max:
-                    skipped += 1
-                    continue
-                pred = planner.predict_n_t(global_repr.unsqueeze(0), torch.tensor([type_id], device=device))
-                total_abs += abs(pred - gold)
-                count += 1
+                if gold > k_clip:
+                    truncated += 1
+                type_tensor = torch.tensor([type_id], device=device)
+                presence_prob = float(torch.sigmoid(planner.presence_logit(global_repr.unsqueeze(0), type_tensor)).reshape(-1)[0].cpu())
+                count_pred = int(truncated_poisson_argmax(planner.count_log_lambda(global_repr.unsqueeze(0), type_tensor), k_clip=k_clip).reshape(-1)[0].cpu())
+                rows.append({"gold": gold, "presence_prob": presence_prob, "count_pred": count_pred})
                 if gold > 0:
-                    positive_gold += 1
-                    if pred > 0:
-                        positive_recalled += 1
+                    positive_abs += abs(count_pred - gold)
+                    positive_count += 1
+    labels = [1 if row["gold"] > 0 else 0 for row in rows]
+    scores = [float(row["presence_prob"]) for row in rows]
+    gate_metrics = _presence_threshold_metrics(labels, scores)
+    threshold = gate_metrics["threshold"]
+    total_abs = 0.0
+    positive_gold = 0
+    positive_recalled = 0
+    for row in rows:
+        pred = int(row["count_pred"]) if float(row["presence_prob"]) >= threshold else 0
+        gold = int(row["gold"])
+        total_abs += abs(pred - gold)
+        if gold > 0:
+            positive_gold += 1
+            if pred > 0:
+                positive_recalled += 1
     return {
-        "planner_mae": round(total_abs / max(count, 1), 6),
+        "planner_mae": round(total_abs / max(len(rows), 1), 6),
         "type_gate_recall": round(positive_recalled / max(positive_gold, 1), 6),
-        "evaluated_event_types": count,
-        "truncated_gold_event_types": skipped,
+        "type_gate_auc": round(_binary_auc(labels, scores), 6),
+        "type_gate_f1_youden": round(gate_metrics["f1"], 6),
+        "type_gate_precision_youden": round(gate_metrics["precision"], 6),
+        "type_gate_recall_youden": round(gate_metrics["recall"], 6),
+        "presence_threshold": round(threshold, 6),
+        "count_mae_positive": round(positive_abs / max(positive_count, 1), 6),
+        "evaluated_event_types": len(rows),
+        "positive_gold_event_types": positive_count,
+        "truncated_gold_event_types": truncated,
+        "truncation_rate": round(truncated / max(len(rows), 1), 6),
+        "k_clip": k_clip,
     }
+
+
+def _presence_threshold_metrics(labels: list[int], scores: list[float]) -> dict[str, float]:
+    if not labels:
+        return {"threshold": 0.5, "f1": 0.0, "precision": 0.0, "recall": 0.0}
+    positives = sum(labels)
+    negatives = len(labels) - positives
+    best = {"threshold": 0.5, "youden_j": -2.0, "f1": 0.0, "precision": 0.0, "recall": 0.0}
+    for threshold in sorted(set(scores + [0.5]), reverse=True):
+        tp = fp = tn = fn = 0
+        for label, score in zip(labels, scores):
+            pred = score >= threshold
+            if pred and label:
+                tp += 1
+            elif pred and not label:
+                fp += 1
+            elif not pred and label:
+                fn += 1
+            else:
+                tn += 1
+        tpr = tp / max(positives, 1)
+        fpr = fp / max(negatives, 1)
+        precision = tp / max(tp + fp, 1)
+        recall = tpr
+        f1 = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
+        youden_j = tpr - fpr
+        if (youden_j, f1, threshold) > (best["youden_j"], best["f1"], best["threshold"]):
+            best = {
+                "threshold": float(threshold),
+                "youden_j": youden_j,
+                "f1": f1,
+                "precision": precision,
+                "recall": recall,
+            }
+    return best
+
+
+def _binary_auc(labels: list[int], scores: list[float]) -> float:
+    positives = sum(labels)
+    negatives = len(labels) - positives
+    if positives == 0 or negatives == 0:
+        return 0.5
+    order = sorted(range(len(scores)), key=lambda index: scores[index])
+    ranks = [0.0] * len(scores)
+    rank = 1
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and scores[order[j + 1]] == scores[order[i]]:
+            j += 1
+        average_rank = (rank + rank + (j - i)) / 2.0
+        for k in range(i, j + 1):
+            ranks[order[k]] = average_rank
+        rank += j - i + 1
+        i = j + 1
+    positive_rank_sum = sum(rank_value for rank_value, label in zip(ranks, labels) if label)
+    return (positive_rank_sum - positives * (positives + 1) / 2.0) / (positives * negatives)
 
 
 def _selected_gold_sentences(labels, sentences: list[Sentence]) -> list[Sentence]:

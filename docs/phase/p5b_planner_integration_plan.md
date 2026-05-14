@@ -1,6 +1,8 @@
-# P5b Planner Integration Plan (Design Stub)
+# P5b Planner Integration Plan
 
-Status: design only. Not implemented. Gated by R3 v2 acceptance.
+Status: implemented locally on 2026-05-14 (in the same session that closed the R3 v2 implementation). Server smoke against a real R3 checkpoint is gated by R3 v2 non-smoke completion. P5b acceptance (dev diagnostic improvement) remains gated by R3 v2 acceptance, which is not yet closed.
+
+The original "design only" stub is preserved below for context; the **Implementation Notes** section at the end records what changed and what is still pending.
 
 ## Purpose
 
@@ -80,3 +82,37 @@ New tests required at integration time:
 - when the checkpoint is loaded, `_type_gate` outputs are derived from `RecordPlanner.type_gate.predict_present`, not from the string match.
 
 A server smoke (toy data, 2 epochs) is required before any DuEE-Fin dev rerun, and the new dev diagnostic JSON must be written to a fresh path (for example `runs/carve/p5b_duee_fin_dev500_planner_v1_seed42/`) so it does not overwrite the existing rule-based evidence.
+
+## Implementation Notes (2026-05-14)
+
+The integration is now implemented in `carve/p5b_runner.py`:
+
+- New class `PlannerGate` wraps `RecordPlanner` plus optional `RobertaSentenceEncoder`. It loads the checkpoint produced by `carve.p3_planner_only_runner`, refuses to load when `--planner-feature-mode` does not match the checkpoint metadata, and exposes a single `predict(document, event_type) -> (present, count)` method that respects the configured feature mode.
+- `build_arg_parser` adds `--planner-checkpoint`, `--planner-encoder-path`, `--planner-feature-mode {global_only, evidence, evidence_lexical}`, `--planner-presence-threshold`.
+- `run_p5b` constructs `PlannerGate` only when `--planner-checkpoint` is set; otherwise behavior is unchanged.
+- `_predict_route` accepts an optional `planner_gate=None`. When provided, the neural planner replaces both `_type_gate` and `_estimate_record_count` for that iteration; rule-based behavior is unaffected when the flag is absent.
+
+New tests in `tests/carve/test_p5b_runner.py`:
+
+- `test_planner_gate_loads_with_valid_global_only_checkpoint`
+- `test_planner_gate_feature_mode_mismatch_raises`
+- `test_planner_gate_predict_uses_trained_biases`
+- `test_smoke_run_with_planner_gate_overrides_type_gate`
+
+All four pass under `__toy__` mode without GPU. All 43 `tests/carve` and 39 `tests/evaluator` tests remain green.
+
+### What this implementation does not do
+
+- It does not assert any P5b behavior improvement. A server smoke against the actual `runs/carve/r3_planner_only_duee_fin_seed42_v2/checkpoints/r3_planner.pt` is the next step once R3 v2 non-smoke finishes. Even if that smoke runs, P5b acceptance still requires:
+  - R3 v2 non-smoke acceptance (currently in progress, not asserted by this commit).
+  - A separate P5b phase doc with explicit acceptance criteria.
+  - A fresh dev diagnostic write path so the existing `runs/carve/p5b_duee_fin_dev500_seed42*` artifacts are not overwritten.
+- It does not change the rule-based fallback. The runner is bit-for-bit identical to v1 when `--planner-checkpoint` is empty.
+- It does not load multiple planners or auto-select feature modes. Both must match the checkpoint exactly.
+- It does not recalibrate the presence threshold. The threshold from checkpoint metadata is used as-is, with `--planner-presence-threshold` as the override hatch.
+
+### Open questions for the follow-up phase
+
+- Should presence threshold be recalibrated on the P5b dev split, or is the R3 train+dev calibration acceptable? Document the choice in the P5b acceptance phase doc.
+- For `evidence_lexical` mode, `_type_gate` is used both as a P5b baseline and as a feature into the planner. The P5b dev diagnostic must report the lexical baseline alongside the neural-with-lexical path so the marginal contribution of the neural part is auditable.
+- Should P5b use a different lexical detector than `_type_gate` (e.g., per-sentence event-type keyword detection)? Out of scope for this stub; record it as a method risk in the follow-up phase doc.

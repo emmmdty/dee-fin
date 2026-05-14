@@ -25,8 +25,139 @@ from carve.datasets import (
     multi_event_subset,
     write_canonical_jsonl,
 )
+from carve.encoder import build_encoder
+from carve.p3_planner import RecordPlanner, truncated_poisson_argmax
+from carve.text_segmentation import split_sentences
 from evaluator.canonical.normalize import normalize_text
 from evaluator.canonical.schema import EventSchema
+
+
+PLANNER_FEATURE_MODES = ("global_only", "evidence", "evidence_lexical")
+
+
+class PlannerGate:
+    """Wraps a trained R3 RecordPlanner so P5b can replace its rule-based type gate and count head.
+
+    Loaded only when --planner-checkpoint is provided. Otherwise P5b retains the existing
+    string-match _type_gate and trigger-count _estimate_record_count behavior.
+    """
+
+    def __init__(
+        self,
+        *,
+        checkpoint_path: str | Path,
+        encoder: nn.Module | None,
+        feature_mode: str,
+        presence_threshold: float | None,
+        device: torch.device,
+    ) -> None:
+        if feature_mode not in PLANNER_FEATURE_MODES:
+            raise ValueError(f"planner feature mode must be in {PLANNER_FEATURE_MODES}, got {feature_mode!r}")
+        payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        metadata = payload.get("planner_metadata") or {}
+        checkpoint_mode = str(metadata.get("encoder_feature_mode") or "")
+        if checkpoint_mode and checkpoint_mode != feature_mode:
+            raise ValueError(
+                f"planner feature mode {feature_mode!r} does not match checkpoint mode {checkpoint_mode!r}"
+            )
+        event_types = list(metadata.get("event_types") or [])
+        if not event_types:
+            raise ValueError("planner checkpoint metadata missing event_types")
+        hidden_size = int(metadata.get("hidden_size") or 0)
+        if hidden_size <= 0:
+            raise ValueError("planner checkpoint metadata missing hidden_size")
+        k_clip = int(metadata.get("k_clip") or 1)
+        self.event_types = event_types
+        self.type_to_id = {event_type: index for index, event_type in enumerate(event_types)}
+        self.feature_mode = feature_mode
+        self.k_clip = max(k_clip, 1)
+        self.encoder = encoder
+        self.device = device
+        self.hidden_size = hidden_size
+        if presence_threshold is None:
+            presence_threshold = float(
+                metadata.get("presence_threshold_all_dev")
+                or metadata.get("presence_threshold_multi_event_dev")
+                or metadata.get("presence_threshold")
+                or 0.5
+            )
+        self.presence_threshold = float(presence_threshold)
+        self.metadata = metadata
+        self.planner = RecordPlanner(
+            hidden_size=hidden_size,
+            num_event_types=len(event_types),
+            k_max=self.k_clip,
+        ).to(device)
+        self.planner.load_state_dict(payload["planner"])
+        self.planner.eval()
+        if feature_mode in {"evidence", "evidence_lexical"} and encoder is None:
+            raise ValueError("encoder is required for evidence / evidence_lexical feature modes")
+
+    @torch.no_grad()
+    def predict(self, document: DueeDocument, event_type: str) -> tuple[bool, int]:
+        type_id = self.type_to_id.get(event_type)
+        if type_id is None:
+            return False, 0
+        global_repr, sentence_repr, sentence_mask = self._encode(document)
+        if self.feature_mode in {"evidence", "evidence_lexical"}:
+            sentence_kwarg = sentence_repr
+            mask_kwarg = sentence_mask
+        else:
+            sentence_kwarg = None
+            mask_kwarg = None
+        if self.feature_mode == "evidence_lexical":
+            lex_value = 1.0 if _type_gate(document, event_type) else 0.0
+            lexical_kwarg = torch.tensor([[lex_value]], dtype=torch.float32, device=self.device)
+        else:
+            lexical_kwarg = None
+        type_tensor = torch.tensor([type_id], dtype=torch.long, device=self.device)
+        presence_logit = self.planner.presence_logit(
+            global_repr,
+            type_tensor,
+            sentence_repr=sentence_kwarg,
+            sentence_mask=mask_kwarg,
+            lexical_hit=lexical_kwarg,
+        )
+        present_prob = float(torch.sigmoid(presence_logit).reshape(-1)[0].item())
+        if present_prob < self.presence_threshold:
+            return False, 0
+        log_lambda = self.planner.count_log_lambda(
+            global_repr,
+            type_tensor,
+            sentence_repr=sentence_kwarg,
+            sentence_mask=mask_kwarg,
+            lexical_hit=lexical_kwarg,
+        )
+        count = int(truncated_poisson_argmax(log_lambda, k_clip=self.k_clip).reshape(-1)[0].item())
+        return True, max(count, 1)
+
+    @torch.no_grad()
+    def _encode(self, document: DueeDocument) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if self.encoder is None:
+            global_repr = torch.zeros((1, self.hidden_size), dtype=torch.float32, device=self.device)
+            sentence_repr = torch.zeros((1, 0, self.hidden_size), dtype=torch.float32, device=self.device)
+            sentence_mask = torch.zeros((1, 0), dtype=torch.bool, device=self.device)
+            return global_repr, sentence_repr, sentence_mask
+        text = _planner_document_text(document)
+        sentences = split_sentences(text)
+        if not sentences:
+            global_repr = torch.zeros((1, self.hidden_size), dtype=torch.float32, device=self.device)
+            sentence_repr = torch.zeros((1, 0, self.hidden_size), dtype=torch.float32, device=self.device)
+            sentence_mask = torch.zeros((1, 0), dtype=torch.bool, device=self.device)
+            return global_repr, sentence_repr, sentence_mask
+        encoded = self.encoder.encode_document(text, sentences)
+        global_repr = encoded.global_repr.to(device=self.device, dtype=torch.float32).reshape(1, -1)
+        sentence_repr = encoded.sentence_repr.to(device=self.device, dtype=torch.float32).unsqueeze(0)
+        sentence_mask = torch.ones((1, sentence_repr.shape[1]), dtype=torch.bool, device=self.device)
+        return global_repr, sentence_repr, sentence_mask
+
+
+def _planner_document_text(document: DueeDocument) -> str:
+    title = (document.title or "").strip()
+    text = document.text or ""
+    if title and not text.startswith(title):
+        return f"{title}\n{text}"
+    return text
 
 
 @dataclass(frozen=True)
@@ -65,6 +196,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--limit-docs", type=int, default=0)
     parser.add_argument("--python-bin", default=sys.executable)
+    parser.add_argument("--planner-checkpoint", default="", help="path to R3 planner checkpoint (r3_planner.pt). When set, P5b replaces _type_gate and _estimate_record_count with the trained planner.")
+    parser.add_argument("--planner-encoder-path", default="", help="path to encoder safetensors directory; required when --planner-checkpoint is set unless --planner-feature-mode is global_only.")
+    parser.add_argument("--planner-feature-mode", choices=PLANNER_FEATURE_MODES, default="evidence_lexical", help="must match the encoder_feature_mode used when the planner checkpoint was trained.")
+    parser.add_argument("--planner-presence-threshold", type=float, default=None, help="override presence threshold; default uses checkpoint metadata.")
     return parser
 
 
@@ -108,6 +243,35 @@ def run_p5b(args: argparse.Namespace) -> dict[str, Any]:
     print(json.dumps({"stage": "training_groups_built", "groups": len(groups)}, ensure_ascii=False), flush=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    planner_gate: PlannerGate | None = None
+    if args.planner_checkpoint:
+        planner_encoder = None
+        if args.planner_feature_mode in {"evidence", "evidence_lexical"}:
+            encoder_path = args.planner_encoder_path or args.model_path
+            if not encoder_path:
+                raise RuntimeError("--planner-encoder-path is required for evidence / evidence_lexical feature modes")
+            planner_encoder = build_encoder(encoder_path, device=device).to(device)
+            planner_encoder.eval()
+        planner_gate = PlannerGate(
+            checkpoint_path=args.planner_checkpoint,
+            encoder=planner_encoder,
+            feature_mode=args.planner_feature_mode,
+            presence_threshold=args.planner_presence_threshold,
+            device=device,
+        )
+        print(
+            json.dumps(
+                {
+                    "stage": "planner_gate_loaded",
+                    "checkpoint": str(args.planner_checkpoint),
+                    "feature_mode": planner_gate.feature_mode,
+                    "presence_threshold": planner_gate.presence_threshold,
+                    "k_clip": planner_gate.k_clip,
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
     model = AllocationDiagnosticModel(feature_dim=9).to(device)
     history = _train(
         model,
@@ -140,6 +304,7 @@ def run_p5b(args: argparse.Namespace) -> dict[str, Any]:
             lexicon=lexicon,
             device=device,
             share_threshold=args.share_threshold,
+            planner_gate=planner_gate,
         )
         pred_path = run_dir / "canonical" / f"dev.{route}.pred.jsonl"
         write_canonical_jsonl(pred_path, pred_rows)
@@ -282,6 +447,7 @@ def _predict_route(
     lexicon: dict[str, dict[str, dict[str, int]]],
     device: torch.device,
     share_threshold: float = 0.50,
+    planner_gate: PlannerGate | None = None,
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
     rows = []
     candidate_total = 0
@@ -291,8 +457,14 @@ def _predict_route(
     for document in documents:
         events = []
         for event_type, roles in schema.event_roles.items():
-            if not _type_gate(document, event_type):
-                continue
+            if planner_gate is not None:
+                present, neural_count = planner_gate.predict(document, event_type)
+                if not present:
+                    continue
+            else:
+                neural_count = None
+                if not _type_gate(document, event_type):
+                    continue
             role_candidates = {
                 role: generate_inference_candidates(document, lexicon, event_type=event_type, role=role)
                 for role in roles
@@ -300,7 +472,7 @@ def _predict_route(
             role_candidates = {role: candidates for role, candidates in role_candidates.items() if candidates}
             if not role_candidates:
                 continue
-            record_count = _estimate_record_count(document, event_type)
+            record_count = neural_count if neural_count is not None else _estimate_record_count(document, event_type)
             records = [defaultdict(list) for _ in range(record_count)]
             for role, candidates in role_candidates.items():
                 candidate_total += len(candidates)

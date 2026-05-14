@@ -14,15 +14,33 @@ from torch import nn
 from carve.datasets import DueeDocument, load_duee_documents, multi_event_subset
 from carve.encoder import build_encoder
 from carve.p2_runner import _document_text, _environment, _set_seed, _write_json
+from carve.p3_mention_crf import MentionCRF
 from carve.p3_planner import (
+    ArgumentCoreferenceHead,
     RecordPlanner,
     SentenceLevelCountPlanner,
+    coref_pair_loss,
+    predict_clusters,
     presence_loss,
     sentence_count_loss,
     truncated_poisson_argmax,
     truncated_poisson_nll,
 )
 from carve.p3_runner import _binary_auc, _presence_threshold_metrics
+from carve.p3_apcc_v4 import (
+    CANDIDATE_THRESHOLD_GRID,
+    DEFAULT_MAX_MENTIONS,
+    STATIC_REFERENCE_BASELINES,
+    MentionSpan,
+    bcubed_f1,
+    build_coref_pair_labels,
+    build_gold_partition,
+    extract_gold_mention_spans,
+    extract_predicted_mentions,
+    load_p3_mention_crf,
+    pad_mentions_to_tensors,
+    pair_pos_weight,
+)
 from carve.p5b_runner import _estimate_record_count, _type_gate
 from carve.text_segmentation import split_sentences
 from evaluator.canonical.normalize import normalize_optional_text, normalize_text
@@ -48,6 +66,13 @@ class PlannerFeatureCache:
     event_types: list[str]
     truncated_sentence_documents: int
     max_sentences: int
+    # v4 (coref) fields; None for document/sentence modes
+    span_repr: torch.Tensor | None = None      # [N, M_max, H]
+    span_sent_idx: torch.Tensor | None = None  # [N, M_max] long
+    span_role_id: torch.Tensor | None = None   # [N, M_max] long
+    span_mask: torch.Tensor | None = None      # [N, M_max] bool
+    span_normalized_values: list[list[str]] | None = None  # [N][M]
+    max_mentions: int = 0
 
     @property
     def documents_count(self) -> int:
@@ -86,9 +111,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-batch-size", type=int, default=128)
     parser.add_argument(
         "--count-head-mode",
-        choices=("document", "sentence"),
+        choices=("document", "sentence", "coref"),
         default="document",
-        help="v3 sentence-level count head (default: document = v2.1 behavior)",
+        help="document (v2.1, default), sentence (v3), coref (v4 APCC)",
     )
     parser.add_argument(
         "--sentence-label-min-hits",
@@ -101,6 +126,37 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=float,
         default=20.0,
         help="cap on BCE pos_weight for sentence count loss (v3 only)",
+    )
+    parser.add_argument(
+        "--mention-source",
+        choices=("crf", "gold"),
+        default="crf",
+        help="v4 only: 'crf' loads --p3-crf-checkpoint and runs CRF (acceptance path); "
+             "'gold' uses gold-record argument values (oracle, ablation only)",
+    )
+    parser.add_argument(
+        "--p3-crf-checkpoint",
+        type=str,
+        default="",
+        help="v4 only: path to a trained P3 checkpoint containing 'mention_crf' state dict",
+    )
+    parser.add_argument(
+        "--max-mentions",
+        type=int,
+        default=DEFAULT_MAX_MENTIONS,
+        help="v4 only: max candidate mentions per document",
+    )
+    parser.add_argument(
+        "--coref-pos-weight-cap",
+        type=float,
+        default=20.0,
+        help="v4 only: cap on BCE pos_weight for coref pair loss",
+    )
+    parser.add_argument(
+        "--coref-threshold-grid",
+        type=str,
+        default=",".join(f"{t:.2f}" for t in CANDIDATE_THRESHOLD_GRID),
+        help="v4 only: comma-separated thresholds searched on train for clustering cutoff",
     )
     return parser
 
@@ -151,18 +207,34 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
     max_sentences = max(int(args.max_sentences), 1)
     count_head_mode = str(args.count_head_mode)
     sentence_min_hits = max(int(args.sentence_label_min_hits), 1)
+    mention_source = str(getattr(args, "mention_source", "crf"))
+    max_mentions = max(int(getattr(args, "max_mentions", DEFAULT_MAX_MENTIONS)), 1)
+
+    mention_crf: MentionCRF | None = None
+    if count_head_mode == "coref" and mention_source == "crf":
+        ckpt_path = str(getattr(args, "p3_crf_checkpoint", ""))
+        if not ckpt_path:
+            raise RuntimeError(
+                "--p3-crf-checkpoint is required when --count-head-mode coref --mention-source crf"
+            )
+        mention_crf = load_p3_mention_crf(ckpt_path, hidden_size).to(device)
+        mention_crf.eval()
+
     cache_dir = run_dir / "cache"
     train_cache = _build_feature_cache(
         train_cache_name, train_docs, encoder, schema, hidden_size=hidden_size, max_sentences=max_sentences,
         count_head_mode=count_head_mode, sentence_label_min_hits=sentence_min_hits,
+        mention_crf=mention_crf, mention_source=mention_source, max_mentions=max_mentions,
     )
     dev_multi_cache = _build_feature_cache(
         "multi_event_dev", dev_docs_multi, encoder, schema, hidden_size=hidden_size, max_sentences=max_sentences,
         count_head_mode=count_head_mode, sentence_label_min_hits=sentence_min_hits,
+        mention_crf=mention_crf, mention_source=mention_source, max_mentions=max_mentions,
     )
     dev_all_cache = _build_feature_cache(
         "all_dev", dev_docs_all, encoder, schema, hidden_size=hidden_size, max_sentences=max_sentences,
         count_head_mode=count_head_mode, sentence_label_min_hits=sentence_min_hits,
+        mention_crf=mention_crf, mention_source=mention_source, max_mentions=max_mentions,
     )
     for cache in (train_cache, dev_multi_cache, dev_all_cache):
         _write_feature_cache(cache_dir / f"{cache.name}.pt", cache)
@@ -174,8 +246,13 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
         num_event_types=len(event_types),
         k_max=k_clip,
         count_head_mode=count_head_mode,
+        num_roles=0,
+        max_sentence_pos=max_sentences,
     ).to(device)
-    history = _train_two_stage_planner(planner, train_cache, args, device)
+    if count_head_mode == "coref":
+        history = _train_coref_planner(planner, train_cache, args, device)
+    else:
+        history = _train_two_stage_planner(planner, train_cache, args, device)
 
     noise_diagnostics: dict[str, dict[str, Any]] = {}
     if count_head_mode == "sentence":
@@ -186,15 +263,49 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
         ):
             noise_diagnostics[cache_name] = _sentence_label_diagnostics(cache_ref)
 
-    metrics = {
-        "multi_event_dev": _evaluate_two_stage_planner(planner, dev_multi_cache, k_clip, device, args),
-        "all_dev": _evaluate_two_stage_planner(planner, dev_all_cache, k_clip, device, args),
-    }
+    coref_threshold = 0.5
+    coref_threshold_grid: dict[str, float] = {}
+    coref_diagnostics: dict[str, dict[str, Any]] = {}
+    if count_head_mode == "coref":
+        grid_str = str(getattr(args, "coref_threshold_grid", "")).strip()
+        grid: tuple[float, ...]
+        if grid_str:
+            grid = tuple(float(x) for x in grid_str.split(",") if x.strip())
+        else:
+            grid = CANDIDATE_THRESHOLD_GRID
+        coref_threshold, coref_threshold_grid = _tune_coref_threshold(planner, train_cache, grid, device)
+        metrics = {
+            "multi_event_dev": _evaluate_coref_planner(planner, dev_multi_cache, device, args, coref_threshold),
+            "all_dev": _evaluate_coref_planner(planner, dev_all_cache, device, args, coref_threshold),
+        }
+        for cache_name, cache_ref in (
+            ("train", train_cache),
+            ("multi_event_dev", dev_multi_cache),
+            ("all_dev", dev_all_cache),
+        ):
+            coref_diagnostics[cache_name] = _coref_pair_diagnostics(cache_ref)
+    else:
+        metrics = {
+            "multi_event_dev": _evaluate_two_stage_planner(planner, dev_multi_cache, k_clip, device, args),
+            "all_dev": _evaluate_two_stage_planner(planner, dev_all_cache, k_clip, device, args),
+        }
     legacy_model = _train_legacy_single_softmax_model(train_cache, schema, k_clip, args, device)
     baselines = {
         "multi_event_dev": _baseline_report(dev_multi_cache, k_clip, legacy_model, device),
         "all_dev": _baseline_report(dev_all_cache, k_clip, legacy_model, device),
     }
+    if count_head_mode == "coref":
+        for population in ACCEPTANCE_POPULATIONS:
+            baselines[population]["v2_1_poisson_static"] = {
+                "count_mae_positive": STATIC_REFERENCE_BASELINES["v2_1_poisson"][population]["count_mae_positive"],
+                "diagnostic_only": True,
+                "source": "docs/measurements/r3_planner_only_duee_fin_seed42_v2_1.md",
+            }
+            baselines[population]["v3_sentence_static"] = {
+                "count_mae_positive": STATIC_REFERENCE_BASELINES["v3_sentence"][population]["count_mae_positive"],
+                "diagnostic_only": True,
+                "source": "docs/measurements/r3_planner_only_duee_fin_seed42_v3.md",
+            }
     acceptance_checks = _acceptance_checks(metrics, baselines, history, count_head_mode=count_head_mode)
 
     _write_json(run_dir / "diagnostics" / "r3_planner_train_history.json", history)
@@ -217,6 +328,10 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
                 "max_sentences": max_sentences,
                 "count_head_mode": count_head_mode,
                 "sentence_label_min_hits": sentence_min_hits if count_head_mode == "sentence" else None,
+                "coref_threshold": coref_threshold if count_head_mode == "coref" else None,
+                "mention_source": mention_source if count_head_mode == "coref" else None,
+                "max_mentions": max_mentions if count_head_mode == "coref" else None,
+                "p3_crf_checkpoint": str(getattr(args, "p3_crf_checkpoint", "")) if count_head_mode == "coref" else None,
             },
         },
         run_dir / "checkpoints" / "r3_planner.pt",
@@ -238,6 +353,11 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
         "baselines": baselines,
         "count_head_mode": count_head_mode,
         "noise_diagnostics": noise_diagnostics,
+        "coref_threshold": coref_threshold if count_head_mode == "coref" else None,
+        "coref_threshold_grid_train_mae": coref_threshold_grid if count_head_mode == "coref" else {},
+        "coref_diagnostics": coref_diagnostics,
+        "mention_source": mention_source if count_head_mode == "coref" else None,
+        "max_mentions": max_mentions if count_head_mode == "coref" else 0,
         "acceptance_checks": acceptance_checks,
         "accepted": all(check["passed"] for check in acceptance_checks.values()),
         "elapsed_seconds": round(time.time() - start_time, 3),
@@ -263,16 +383,26 @@ def _build_feature_cache(
     max_sentences: int,
     count_head_mode: str = "document",
     sentence_label_min_hits: int = 1,
+    mention_crf: "MentionCRF | None" = None,
+    mention_source: str = "crf",
+    max_mentions: int = DEFAULT_MAX_MENTIONS,
 ) -> PlannerFeatureCache:
     event_types = list(schema.event_roles)
     build_sentence_labels = count_head_mode == "sentence"
+    build_coref_spans = count_head_mode == "coref"
     global_rows: list[torch.Tensor] = []
     sentence_rows: list[torch.Tensor] = []
     count_rows: list[list[int]] = []
     lexical_rows: list[list[int]] = []
     sentence_label_rows: list[list[list[int]]] = []  # [doc][sentence][type]
+    per_doc_spans: list[list[MentionSpan]] = []
     document_ids: list[str] = []
     truncated = 0
+    if build_coref_spans and mention_source == "crf" and mention_crf is None:
+        raise RuntimeError(
+            "count_head_mode='coref' with mention_source='crf' requires a loaded MentionCRF; "
+            "pass --p3-crf-checkpoint to load one."
+        )
     with torch.no_grad():
         for document in documents:
             text = _document_text(document)
@@ -282,6 +412,7 @@ def _build_feature_cache(
                 global_repr = encoded.global_repr.detach().cpu().to(dtype=torch.float32)
                 sentence_repr = encoded.sentence_repr.detach().cpu().to(dtype=torch.float32)
             else:
+                encoded = None
                 global_repr = torch.zeros((hidden_size,), dtype=torch.float32)
                 sentence_repr = torch.zeros((0, hidden_size), dtype=torch.float32)
             if sentence_repr.shape[0] > max_sentences:
@@ -297,6 +428,25 @@ def _build_feature_cache(
                     document, sentences[:n_sent], event_types, min_hits=sentence_label_min_hits,
                 )
                 sentence_label_rows.append(doc_labels)
+            if build_coref_spans:
+                if encoded is None or not sentences:
+                    per_doc_spans.append([])
+                else:
+                    sents_used = sentences[:n_sent]
+                    if mention_source == "crf":
+                        assert mention_crf is not None
+                        spans = extract_predicted_mentions(
+                            encoded, sents_used, mention_crf,
+                            hidden_size=hidden_size, max_mentions=max_mentions,
+                        )
+                    else:
+                        spans = extract_gold_mention_spans(
+                            encoded, sents_used, document, schema,
+                            hidden_size=hidden_size, max_mentions=max_mentions,
+                        )
+                    # clip sent_idx to be safe under sentence truncation
+                    spans = [s for s in spans if s.sent_idx < n_sent]
+                    per_doc_spans.append(spans)
             document_ids.append(document.document_id)
 
     n_docs = len(global_rows)
@@ -330,6 +480,28 @@ def _build_feature_cache(
                     sentence_label_tensor[doc_idx, :n] = torch.tensor(doc_labels[:n], dtype=torch.uint8)
         else:
             sentence_label_tensor = None
+
+    span_repr_tensor: torch.Tensor | None = None
+    span_sent_idx_tensor: torch.Tensor | None = None
+    span_role_id_tensor: torch.Tensor | None = None
+    span_mask_tensor: torch.Tensor | None = None
+    span_values: list[list[str]] | None = None
+    effective_max_mentions = 0
+    if build_coref_spans and n_docs > 0:
+        observed_max = max((len(s) for s in per_doc_spans), default=0)
+        effective_max_mentions = max(min(observed_max, max_mentions), 1)
+        packed = pad_mentions_to_tensors(
+            per_doc_spans, hidden_size=hidden_size, max_mentions=effective_max_mentions,
+        )
+        span_repr_tensor = packed["span_repr"]
+        span_sent_idx_tensor = packed["span_sent_idx"]
+        span_role_id_tensor = packed["span_role_id"]
+        span_mask_tensor = packed["span_mask"]
+        span_values = [
+            [s.normalized_value for s in per_doc_spans[d][:effective_max_mentions]]
+            for d in range(n_docs)
+        ]
+
     return PlannerFeatureCache(
         name=name,
         document_ids=document_ids,
@@ -343,6 +515,12 @@ def _build_feature_cache(
         event_types=event_types,
         truncated_sentence_documents=truncated,
         max_sentences=max_sentences,
+        span_repr=span_repr_tensor,
+        span_sent_idx=span_sent_idx_tensor,
+        span_role_id=span_role_id_tensor,
+        span_mask=span_mask_tensor,
+        span_normalized_values=span_values,
+        max_mentions=effective_max_mentions,
     )
 
 
@@ -1005,11 +1183,75 @@ def _acceptance_checks(
             "threshold": "first/last ratio >= 1.5 over at least 10 epochs",
             "passed": _has_required_overall_decrease(history, "count_loss", min_ratio=1.5),
         }
+    elif count_head_mode == "coref":
+        checks["training/coref_loss_trend"] = {
+            "value": _trend_summary(history, "count_loss"),
+            "threshold": "first/last ratio >= 1.5 over at least 10 epochs",
+            "passed": _has_required_overall_decrease(history, "count_loss", min_ratio=1.5),
+        }
     else:
         checks["training/count_loss_trend"] = {
             "value": _trend_summary(history, "count_loss"),
             "threshold": "first/last ratio >= 2.0 over at least 10 epochs",
             "passed": _has_required_overall_decrease(history, "count_loss"),
+        }
+
+    # v4 adds pair AUC and cluster B³ checks per population, and a static-baselines
+    # minimum for count_mae_positive (predict_one ∧ p5b_lexical_trigger ∧ v2.1 ∧ v3).
+    if count_head_mode == "coref":
+        coref_count_margins = {"multi_event_dev": 0.05, "all_dev": 0.02}
+        for population in ACCEPTANCE_POPULATIONS:
+            metrics = metrics_by_population.get(population, {})
+            baselines = baselines_by_population.get(population, {})
+            count_value = float(metrics.get("count_mae_positive", float("inf")))
+            candidate_baselines: dict[str, float] = {}
+            for key in ("predict_one", "p5b_lexical_trigger", "legacy_single_softmax",
+                        "v2_1_poisson_static", "v3_sentence_static"):
+                v = baselines.get(key, {}).get("count_mae_positive")
+                if v is not None:
+                    try:
+                        candidate_baselines[key] = float(v)
+                    except (TypeError, ValueError):
+                        continue
+            best_count_baseline = min(candidate_baselines.values()) if candidate_baselines else float("inf")
+            margin = float(coref_count_margins.get(population, 0.05))
+            dynamic_threshold = best_count_baseline - margin
+            count_pass = count_value <= dynamic_threshold
+            checks[f"{population}/count_mae_positive"] = {
+                "value": round(count_value, 6),
+                "absolute_threshold": f"<= {dynamic_threshold:.6f}",
+                "best_baseline": round(best_count_baseline, 6),
+                "best_baseline_sources": {k: round(v, 6) for k, v in candidate_baselines.items()},
+                "baseline_relative_threshold": f"<= {dynamic_threshold:.6f}",
+                "baseline_relative_margin": margin,
+                "passed_absolute": bool(count_pass),
+                "passed_baseline_relative": bool(count_pass),
+                "passed": bool(count_pass),
+            }
+            for metric_name, threshold in (
+                ("pair_auc", 0.75),
+                ("cluster_b3_f1", 0.65),
+            ):
+                value = float(metrics.get(metric_name, 0.0))
+                passed = value >= float(threshold)
+                checks[f"{population}/{metric_name}"] = {
+                    "value": round(value, 6),
+                    "absolute_threshold": f">= {float(threshold):.6f}",
+                    "passed_absolute": bool(passed),
+                    "passed": bool(passed),
+                }
+        # Ambiguity audit: presence of the field is itself the gate (missing = fail)
+        ambig_present = all(
+            "ambiguous_pair_rate" in metrics_by_population.get(p, {})
+            for p in ACCEPTANCE_POPULATIONS
+        )
+        checks["ambiguity_audit"] = {
+            "value": {
+                p: metrics_by_population.get(p, {}).get("ambiguous_pair_rate")
+                for p in ACCEPTANCE_POPULATIONS
+            },
+            "threshold": "ambiguous_pair_rate field must be present for both populations",
+            "passed": bool(ambig_present),
         }
     return checks
 
@@ -1088,3 +1330,452 @@ class _LegacySoftmaxPlanner(nn.Module):
             global_repr = global_repr.expand(type_id.shape[0], -1)
         type_emb = self.type_embedding(type_id.to(device=self.type_embedding.weight.device, dtype=torch.long))
         return self.proj(torch.cat([global_repr.to(type_emb.device), type_emb], dim=-1))
+
+
+# ---------------------------------------------------------------------------
+# v4 coref-mode helpers
+# ---------------------------------------------------------------------------
+
+
+def _coref_training_pairs(cache: PlannerFeatureCache) -> list[tuple[int, int]]:
+    """Return (doc_idx, type_id) tuples whose gold_n_t > 0 — eligible for APCC training."""
+    if cache.counts.numel() == 0:
+        return []
+    nonzero = (cache.counts > 0).nonzero(as_tuple=False).tolist()
+    return [(int(d), int(t)) for d, t in nonzero]
+
+
+def _train_coref_planner(
+    planner: RecordPlanner,
+    cache: PlannerFeatureCache,
+    args: argparse.Namespace,
+    device: torch.device,
+) -> list[dict[str, float | int]]:
+    """Unified single-backward training for coref mode.
+
+    Each step processes a batch of (doc, type) pairs, computes presence loss on the
+    whole batch and coref loss on its positive subset (mirrors the v2.1 pattern in
+    `_train_two_stage_planner`). This gives a single, well-conditioned optimization
+    trajectory rather than alternating presence/coref passes with disjoint warmup.
+    """
+    if cache.span_repr is None or cache.span_normalized_values is None:
+        raise RuntimeError("coref training requires span features; check cache build path")
+    feature_mode = str(args.encoder_feature_mode)
+    use_evidence = feature_mode in {"evidence", "evidence_lexical"}
+    use_lexical = feature_mode == "evidence_lexical"
+
+    doc_indices, type_ids, presence_targets, lexical_hits = _pair_tensors(cache)
+    if presence_targets.numel() == 0:
+        raise RuntimeError("no (doc, type) pairs to train on")
+    train_pairs = _coref_training_pairs(cache)
+    if not train_pairs:
+        raise RuntimeError("no positive (doc, type) pairs to train APCC on")
+
+    presence_pos_weight = torch.tensor(
+        float(_population_stats(cache)["presence_pos_weight"]),
+        dtype=torch.float32, device=device,
+    )
+
+    m_max = int(cache.span_repr.shape[1]) if cache.span_repr is not None else 1
+
+    # Pre-pad pair labels & eligibility to global M_max once; index by (doc, type).
+    pair_label_cache: dict[tuple[int, int], tuple[torch.Tensor, torch.Tensor]] = {}
+    eligible_pairs_count = 0
+    for doc_idx, type_id in train_pairs:
+        labels, eligible, _ = build_coref_pair_labels(
+            cache.span_normalized_values[doc_idx],
+            cache.documents[doc_idx],
+            cache.event_types[type_id],
+        )
+        if int(eligible.sum().item()) == 0:
+            continue
+        labels_padded = torch.zeros((m_max, m_max), dtype=labels.dtype)
+        eligible_padded = torch.zeros((m_max, m_max), dtype=eligible.dtype)
+        n = min(int(labels.shape[0]), m_max)
+        labels_padded[:n, :n] = labels[:n, :n]
+        eligible_padded[:n, :n] = eligible[:n, :n]
+        pair_label_cache[(int(doc_idx), int(type_id))] = (labels_padded, eligible_padded)
+        eligible_pairs_count += 1
+    if not pair_label_cache:
+        raise RuntimeError("no eligible pairs found for coref training (all ambiguous)")
+
+    coref_pw_value = pair_pos_weight(
+        [
+            [
+                MentionSpan(0, 0, 0, v, torch.zeros(1))
+                for v in cache.span_normalized_values[d]
+            ]
+            for d in range(cache.documents_count)
+        ],
+        cache.documents,
+        cache.event_types,
+        cap=float(getattr(args, "coref_pos_weight_cap", 20.0)),
+    )
+    coref_pos_weight = torch.tensor(coref_pw_value, dtype=torch.float32, device=device)
+
+    global_repr_device = cache.global_repr.to(device)
+    sentence_repr_device = cache.sentence_repr.to(device) if use_evidence else None
+    sentence_mask_device = cache.sentence_mask.to(device) if use_evidence else None
+    lexical_hit_device = lexical_hits.to(device) if use_lexical else None
+    span_repr_device = cache.span_repr.to(device)
+    span_sent_idx_device = cache.span_sent_idx.to(device) if cache.span_sent_idx is not None else torch.zeros(span_repr_device.shape[:2], dtype=torch.long, device=device)
+    span_role_id_device = cache.span_role_id.to(device) if cache.span_role_id is not None else torch.zeros(span_repr_device.shape[:2], dtype=torch.long, device=device)
+    span_mask_device = cache.span_mask.to(device) if cache.span_mask is not None else torch.ones(span_repr_device.shape[:2], dtype=torch.bool, device=device)
+
+    optimizer = torch.optim.AdamW(planner.parameters(), lr=float(args.lr), weight_decay=1e-4)
+    for group in optimizer.param_groups:
+        group["initial_lr"] = group["lr"]
+
+    presence_targets_device = presence_targets.to(device)
+    doc_indices_device = doc_indices.to(device)
+    type_ids_device = type_ids.to(device)
+    batch_size = max(int(args.batch_size), 1)
+
+    steps_per_epoch = max(math.ceil(presence_targets.numel() / batch_size), 1)
+    total_steps = max(int(args.max_epochs) * steps_per_epoch, 1)
+    warmup_steps = max(int(total_steps * float(args.warmup_ratio)), 1)
+
+    lambda_presence = float(args.lambda_presence)
+    lambda_count = float(args.lambda_count)
+
+    history: list[dict[str, float | int]] = []
+    global_step = 0
+    for epoch in range(1, int(args.max_epochs) + 1):
+        totals = {"loss": 0.0, "presence_loss": 0.0, "count_loss": 0.0, "pairs": 0.0, "coref_batches": 0.0, "coref_loss_sum": 0.0}
+        order = torch.randperm(presence_targets.numel(), device=device)
+        for batch_start in range(0, presence_targets.numel(), batch_size):
+            batch_ids = order[batch_start:batch_start + batch_size]
+            doc_idx_batch = doc_indices_device[batch_ids]
+            type_batch = type_ids_device[batch_ids]
+            global_batch = global_repr_device[doc_idx_batch]
+            target_batch = presence_targets_device[batch_ids]
+            sent_batch = sentence_repr_device[doc_idx_batch] if sentence_repr_device is not None else None
+            mask_batch = sentence_mask_device[doc_idx_batch] if sentence_mask_device is not None else None
+            lex_batch = lexical_hit_device[batch_ids].unsqueeze(-1) if lexical_hit_device is not None else None
+
+            presence_target = (target_batch > 0).to(dtype=torch.float32)
+            presence_logits = planner.presence_logit(
+                global_batch, type_batch,
+                sentence_repr=sent_batch, sentence_mask=mask_batch, lexical_hit=lex_batch,
+            )
+            p_loss = presence_loss(presence_logits, presence_target, pos_weight=presence_pos_weight)
+
+            # Coref loss on the positive subset that has eligible pairs
+            positive_mask = target_batch > 0
+            c_loss = presence_logits.sum() * 0.0
+            coref_keys: list[tuple[int, int]] = []
+            if bool(positive_mask.any().item()):
+                pos_local_idx = positive_mask.nonzero(as_tuple=False).reshape(-1)
+                for li in pos_local_idx.tolist():
+                    d = int(doc_idx_batch[li].item())
+                    t = int(type_batch[li].item())
+                    if (d, t) in pair_label_cache:
+                        coref_keys.append((d, t))
+                if coref_keys:
+                    coref_doc_idx = torch.tensor([d for d, _ in coref_keys], dtype=torch.long, device=device)
+                    coref_type = torch.tensor([t for _, t in coref_keys], dtype=torch.long, device=device)
+                    span_repr_batch = span_repr_device[coref_doc_idx]
+                    span_role_batch = span_role_id_device[coref_doc_idx]
+                    span_sent_batch = span_sent_idx_device[coref_doc_idx]
+                    span_mask_batch = span_mask_device[coref_doc_idx]
+                    label_stack = torch.stack([pair_label_cache[k][0] for k in coref_keys]).to(device)
+                    eligible_stack = torch.stack([pair_label_cache[k][1] for k in coref_keys]).to(device)
+                    affinity = planner.coref_affinity(
+                        span_repr_batch, span_role_batch, span_sent_batch, coref_type,
+                        span_mask=span_mask_batch,
+                    )
+                    c_loss = coref_pair_loss(affinity, label_stack, eligible_stack, pos_weight=coref_pos_weight)
+
+            loss = lambda_presence * p_loss + lambda_count * c_loss
+
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            if float(args.grad_clip) > 0:
+                torch.nn.utils.clip_grad_norm_(planner.parameters(), max_norm=float(args.grad_clip))
+            scale = _lr_scale(global_step, warmup_steps)
+            for group in optimizer.param_groups:
+                group["lr"] = group["initial_lr"] * scale
+            optimizer.step()
+            global_step += 1
+
+            n = float(batch_ids.numel())
+            totals["loss"] += float(loss.detach().cpu()) * n
+            totals["presence_loss"] += float(p_loss.detach().cpu()) * n
+            totals["pairs"] += n
+            if coref_keys:
+                totals["coref_batches"] += 1.0
+                totals["coref_loss_sum"] += float(c_loss.detach().cpu())
+
+        pair_denom = max(totals["pairs"], 1.0)
+        coref_denom = max(totals["coref_batches"], 1.0)
+        row = {
+            "epoch": epoch,
+            "loss": totals["loss"] / pair_denom,
+            "presence_loss": totals["presence_loss"] / pair_denom,
+            "count_loss": totals["coref_loss_sum"] / coref_denom,
+            "event_type_pairs": int(totals["pairs"]),
+            "coref_batches": int(totals["coref_batches"]),
+        }
+        history.append(row)
+        print(json.dumps(row, ensure_ascii=False), flush=True)
+    return history
+
+
+def _evaluate_coref_planner(
+    planner: RecordPlanner,
+    cache: PlannerFeatureCache,
+    device: torch.device,
+    args: argparse.Namespace,
+    coref_threshold: float,
+) -> dict[str, float | int | str]:
+    if cache.span_repr is None:
+        return _empty_metrics(cache.name, 1)
+    feature_mode = str(args.encoder_feature_mode)
+    use_evidence = feature_mode in {"evidence", "evidence_lexical"}
+    use_lexical = feature_mode == "evidence_lexical"
+    doc_indices, type_ids, targets, lexical_hits = _pair_tensors(cache)
+    if targets.numel() == 0:
+        return _empty_metrics(cache.name, 1)
+
+    global_repr_device = cache.global_repr.to(device)
+    sentence_repr_device = cache.sentence_repr.to(device) if use_evidence else None
+    sentence_mask_device = cache.sentence_mask.to(device) if use_evidence else None
+    lexical_hit_device = lexical_hits.to(device) if use_lexical else None
+    span_repr_device = cache.span_repr.to(device)
+    span_sent_idx_device = cache.span_sent_idx.to(device) if cache.span_sent_idx is not None else torch.zeros(span_repr_device.shape[:2], dtype=torch.long, device=device)
+    span_role_id_device = cache.span_role_id.to(device) if cache.span_role_id is not None else torch.zeros(span_repr_device.shape[:2], dtype=torch.long, device=device)
+    span_mask_device = cache.span_mask.to(device) if cache.span_mask is not None else torch.ones(span_repr_device.shape[:2], dtype=torch.bool, device=device)
+    doc_indices_device = doc_indices.to(device)
+    type_ids_device = type_ids.to(device)
+
+    presence_scores: list[float] = []
+    count_predictions: list[int] = []
+    pair_score_collect: list[float] = []
+    pair_label_collect: list[int] = []
+    bcubed_p: list[float] = []
+    bcubed_r: list[float] = []
+    ambiguous_pairs = 0
+    eligible_pairs = 0
+
+    with torch.no_grad():
+        # presence first (all pairs)
+        for start in range(0, int(targets.numel()), max(int(args.eval_batch_size or args.batch_size), 1)):
+            stop = min(start + max(int(args.eval_batch_size or args.batch_size), 1), int(targets.numel()))
+            doc_idx_batch = doc_indices_device[start:stop]
+            type_batch = type_ids_device[start:stop]
+            global_batch = global_repr_device[doc_idx_batch]
+            sent_batch = sentence_repr_device[doc_idx_batch] if sentence_repr_device is not None else None
+            mask_batch = sentence_mask_device[doc_idx_batch] if sentence_mask_device is not None else None
+            lex_batch = lexical_hit_device[start:stop].unsqueeze(-1) if lexical_hit_device is not None else None
+            presence_probs = torch.sigmoid(
+                planner.presence_logit(
+                    global_batch, type_batch,
+                    sentence_repr=sent_batch, sentence_mask=mask_batch, lexical_hit=lex_batch,
+                )
+            ).detach().cpu()
+            presence_scores.extend([float(v) for v in presence_probs.tolist()])
+
+        # presence threshold via Youden's J (consistent with existing _prediction_metrics path)
+        labels = [1 if int(v) > 0 else 0 for v in targets.tolist()]
+        gate_metrics = _presence_threshold_metrics(labels, presence_scores)
+        threshold = float(gate_metrics["threshold"])
+
+        # coref clustering per (doc, type) pair
+        for idx in range(int(targets.numel())):
+            d = int(doc_indices_device[idx].item())
+            t = int(type_ids_device[idx].item())
+            present = presence_scores[idx] >= threshold
+            mention_values = cache.span_normalized_values[d] if cache.span_normalized_values is not None else []
+            mask_d = span_mask_device[d]
+            if not present:
+                count_predictions.append(0)
+                # still collect pair stats for AUC/B³ on positive types
+                if int(targets[idx].item()) > 0:
+                    self_eval = _evaluate_coref_pair_metrics(
+                        planner, span_repr_device[d:d + 1], span_role_id_device[d:d + 1],
+                        span_sent_idx_device[d:d + 1], span_mask_device[d:d + 1],
+                        torch.tensor([t], device=device),
+                        cache.documents[d], cache.event_types[t],
+                        mention_values, coref_threshold,
+                    )
+                    if self_eval is not None:
+                        pair_score_collect.extend(self_eval["pair_scores"])
+                        pair_label_collect.extend(self_eval["pair_labels"])
+                        bcubed_p.append(self_eval["bcubed_p"])
+                        bcubed_r.append(self_eval["bcubed_r"])
+                        ambiguous_pairs += self_eval["ambiguous_pairs"]
+                        eligible_pairs += self_eval["eligible_pairs"]
+                continue
+            if not bool(mask_d.to(torch.bool).any().item()):
+                count_predictions.append(1)
+                continue
+            self_eval = _evaluate_coref_pair_metrics(
+                planner, span_repr_device[d:d + 1], span_role_id_device[d:d + 1],
+                span_sent_idx_device[d:d + 1], span_mask_device[d:d + 1],
+                torch.tensor([t], device=device),
+                cache.documents[d], cache.event_types[t],
+                mention_values, coref_threshold,
+            )
+            if self_eval is None:
+                count_predictions.append(1)
+                continue
+            count_predictions.append(self_eval["n_clusters"])
+            pair_score_collect.extend(self_eval["pair_scores"])
+            pair_label_collect.extend(self_eval["pair_labels"])
+            bcubed_p.append(self_eval["bcubed_p"])
+            bcubed_r.append(self_eval["bcubed_r"])
+            ambiguous_pairs += self_eval["ambiguous_pairs"]
+            eligible_pairs += self_eval["eligible_pairs"]
+
+    result = _prediction_metrics(
+        population=cache.name,
+        documents=cache.documents_count,
+        targets=targets,
+        presence_scores=presence_scores,
+        count_predictions=count_predictions,
+        k_clip=1,
+    )
+
+    pair_auc = _binary_auc(pair_label_collect, pair_score_collect) if pair_score_collect else 0.5
+    if bcubed_p:
+        mean_p = sum(bcubed_p) / len(bcubed_p)
+        mean_r = sum(bcubed_r) / len(bcubed_r)
+        f1 = 0.0 if mean_p + mean_r == 0 else 2 * mean_p * mean_r / (mean_p + mean_r)
+    else:
+        mean_p = mean_r = f1 = 0.0
+    total_pair_candidates = eligible_pairs + ambiguous_pairs
+    result["pair_auc"] = round(pair_auc, 6)
+    result["cluster_b3_precision"] = round(mean_p, 6)
+    result["cluster_b3_recall"] = round(mean_r, 6)
+    result["cluster_b3_f1"] = round(f1, 6)
+    result["ambiguous_pair_rate"] = round(ambiguous_pairs / max(total_pair_candidates, 1), 6)
+    result["coref_threshold"] = coref_threshold
+    return result
+
+
+def _evaluate_coref_pair_metrics(
+    planner: RecordPlanner,
+    span_repr: torch.Tensor,
+    span_role: torch.Tensor,
+    span_sent: torch.Tensor,
+    span_mask: torch.Tensor,
+    type_id: torch.Tensor,
+    document: DueeDocument,
+    event_type: str,
+    mention_values: list[str],
+    coref_threshold: float,
+) -> dict[str, Any] | None:
+    affinity = planner.coref_affinity(span_repr, span_role, span_sent, type_id, span_mask=span_mask)
+    affinity_one = affinity[0]
+    mask_one = span_mask[0]
+    if not bool(mask_one.to(torch.bool).any().item()):
+        return None
+    clusters = predict_clusters(affinity_one, mask_one, threshold=coref_threshold)
+    n_clusters = max(len(clusters), 1)
+
+    pred_assignment: list[int | None] = [None] * len(mention_values)
+    for cid, members in enumerate(clusters):
+        for m in members:
+            if 0 <= m < len(mention_values):
+                pred_assignment[m] = cid
+
+    gold_partition = build_gold_partition(mention_values, document, event_type)
+    bp, br, _ = bcubed_f1(pred_assignment, gold_partition)
+
+    labels, eligible, stats = build_coref_pair_labels(mention_values, document, event_type)
+    pair_scores: list[float] = []
+    pair_labels: list[int] = []
+    M = labels.shape[0]
+    probs = torch.sigmoid(affinity_one).detach().cpu()
+    for i in range(M):
+        for j in range(i + 1, M):
+            if not bool(eligible[i, j].item()):
+                continue
+            pair_scores.append(float(probs[i, j].item()))
+            pair_labels.append(int(labels[i, j].item()))
+    return {
+        "n_clusters": n_clusters,
+        "pair_scores": pair_scores,
+        "pair_labels": pair_labels,
+        "bcubed_p": bp,
+        "bcubed_r": br,
+        "ambiguous_pairs": int(stats["ambiguous_mentions"]),
+        "eligible_pairs": stats["positive_pairs"] + stats["negative_pairs"],
+    }
+
+
+def _tune_coref_threshold(
+    planner: RecordPlanner,
+    train_cache: PlannerFeatureCache,
+    grid: tuple[float, ...],
+    device: torch.device,
+) -> tuple[float, dict[str, float]]:
+    if train_cache.span_repr is None or train_cache.span_normalized_values is None:
+        return 0.5, {}
+    span_repr_d = train_cache.span_repr.to(device)
+    span_sent_d = train_cache.span_sent_idx.to(device) if train_cache.span_sent_idx is not None else torch.zeros(span_repr_d.shape[:2], dtype=torch.long, device=device)
+    span_role_d = train_cache.span_role_id.to(device) if train_cache.span_role_id is not None else torch.zeros(span_repr_d.shape[:2], dtype=torch.long, device=device)
+    span_mask_d = train_cache.span_mask.to(device) if train_cache.span_mask is not None else torch.ones(span_repr_d.shape[:2], dtype=torch.bool, device=device)
+    positive_pairs = (train_cache.counts > 0).nonzero(as_tuple=False).tolist()
+    if not positive_pairs:
+        return 0.5, {}
+
+    affinities: dict[tuple[int, int], torch.Tensor] = {}
+    with torch.no_grad():
+        for d, t in positive_pairs:
+            d = int(d); t = int(t)
+            type_id = torch.tensor([t], dtype=torch.long, device=device)
+            affinity = planner.coref_affinity(
+                span_repr_d[d:d + 1], span_role_d[d:d + 1], span_sent_d[d:d + 1], type_id,
+                span_mask=span_mask_d[d:d + 1],
+            )[0].detach().cpu()
+            affinities[(d, t)] = affinity
+
+    mae_by_tau: dict[str, float] = {}
+    best_tau = 0.5
+    best_mae = float("inf")
+    for tau in grid:
+        diff = 0.0
+        n = 0
+        for (d, t), affinity in affinities.items():
+            gold_n = int(train_cache.counts[d, t].item())
+            mask = train_cache.span_mask[d] if train_cache.span_mask is not None else torch.ones(affinity.shape[0], dtype=torch.bool)
+            if not bool(mask.to(torch.bool).any().item()):
+                pred_n = 1
+            else:
+                clusters = predict_clusters(affinity, mask, threshold=float(tau))
+                pred_n = max(len(clusters), 1)
+            diff += abs(pred_n - gold_n)
+            n += 1
+        mae = diff / max(n, 1)
+        mae_by_tau[f"{tau:.2f}"] = round(mae, 6)
+        if mae < best_mae:
+            best_mae = mae
+            best_tau = float(tau)
+    return best_tau, mae_by_tau
+
+
+def _coref_pair_diagnostics(cache: PlannerFeatureCache) -> dict[str, Any]:
+    if cache.span_normalized_values is None:
+        return {"matched_mentions": None, "ambiguous_mentions": None, "positive_pairs": None, "negative_pairs": None}
+    matched = 0
+    ambiguous = 0
+    pos_pairs = 0
+    neg_pairs = 0
+    for d in range(cache.documents_count):
+        for t, event_type in enumerate(cache.event_types):
+            if int(cache.counts[d, t].item()) <= 0:
+                continue
+            _, _, stats = build_coref_pair_labels(
+                cache.span_normalized_values[d], cache.documents[d], event_type,
+            )
+            matched += stats["matched_mentions"]
+            ambiguous += stats["ambiguous_mentions"]
+            pos_pairs += stats["positive_pairs"]
+            neg_pairs += stats["negative_pairs"]
+    return {
+        "matched_mentions": matched,
+        "ambiguous_mentions": ambiguous,
+        "positive_pairs": pos_pairs,
+        "negative_pairs": neg_pairs,
+    }

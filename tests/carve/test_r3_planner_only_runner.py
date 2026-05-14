@@ -282,6 +282,93 @@ class R3PlannerOnlyRunnerTests(unittest.TestCase):
                     count_entry["baseline_relative_threshold"],
                 )
 
+    def test_smoke_run_coref_mode_gold_source_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = self._write_toy_dataset(root / "data")
+            run_dir = root / "run"
+
+            args = build_arg_parser().parse_args(
+                [
+                    "--dataset", "DuEE-Fin-dev500",
+                    "--data-root", str(data_root),
+                    "--schema", str(data_root / "schema.json"),
+                    "--run-dir", str(run_dir),
+                    "--model-path", "__toy__",
+                    "--max-epochs", "2",
+                    "--batch-size", "2",
+                    "--smoke",
+                    "--encoder-feature-mode", "evidence_lexical",
+                    "--count-head-mode", "coref",
+                    "--mention-source", "gold",
+                    "--max-mentions", "8",
+                ]
+            )
+            report = run_r3_planner_only(args)
+
+            self.assertEqual(report["status"], "r3_planner_only_smoke")
+            self.assertEqual(report["count_head_mode"], "coref")
+            self.assertEqual(report["mention_source"], "gold")
+            self.assertIsInstance(report["coref_threshold"], float)
+            self.assertGreater(len(report["coref_threshold_grid_train_mae"]), 0)
+            self.assertIn("multi_event_dev", report["coref_diagnostics"])
+            for pop in ("multi_event_dev", "all_dev"):
+                d = report["coref_diagnostics"][pop]
+                self.assertIn("matched_mentions", d)
+                self.assertIn("ambiguous_mentions", d)
+
+            checks = report["acceptance_checks"]
+            for pop in ("multi_event_dev", "all_dev"):
+                self.assertIn(f"{pop}/type_gate_auc", checks)
+                self.assertIn(f"{pop}/type_gate_f1_youden", checks)
+                self.assertIn(f"{pop}/count_mae_positive", checks)
+                self.assertIn(f"{pop}/pair_auc", checks)
+                self.assertIn(f"{pop}/cluster_b3_f1", checks)
+            self.assertIn("training/coref_loss_trend", checks)
+            self.assertIn("ambiguity_audit", checks)
+
+            # count_mae_positive must reference v2.1 and v3 static baselines
+            sources = checks["multi_event_dev/count_mae_positive"]["best_baseline_sources"]
+            self.assertIn("v2_1_poisson_static", sources)
+            self.assertIn("v3_sentence_static", sources)
+
+            metrics = report["metrics"]
+            for pop in ("multi_event_dev", "all_dev"):
+                self.assertIn("pair_auc", metrics[pop])
+                self.assertIn("cluster_b3_f1", metrics[pop])
+                self.assertIn("ambiguous_pair_rate", metrics[pop])
+
+            ckpt = torch.load(run_dir / "checkpoints" / "r3_planner.pt", map_location="cpu", weights_only=False)
+            md = ckpt.get("planner_metadata", {})
+            self.assertEqual(md.get("count_head_mode"), "coref")
+            self.assertIsNotNone(md.get("coref_threshold"))
+            self.assertEqual(md.get("mention_source"), "gold")
+
+    def test_coref_mode_requires_crf_checkpoint_when_source_is_crf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = self._write_toy_dataset(root / "data")
+            run_dir = root / "run"
+
+            args = build_arg_parser().parse_args(
+                [
+                    "--dataset", "DuEE-Fin-dev500",
+                    "--data-root", str(data_root),
+                    "--schema", str(data_root / "schema.json"),
+                    "--run-dir", str(run_dir),
+                    "--model-path", "__toy__",
+                    "--max-epochs", "1",
+                    "--batch-size", "2",
+                    "--smoke",
+                    "--count-head-mode", "coref",
+                    "--mention-source", "crf",
+                    # intentionally no --p3-crf-checkpoint
+                ]
+            )
+            with self.assertRaises(RuntimeError) as ctx:
+                run_r3_planner_only(args)
+            self.assertIn("p3-crf-checkpoint", str(ctx.exception))
+
     @staticmethod
     def _write_toy_dataset(data_root: Path) -> Path:
         data_root.mkdir()

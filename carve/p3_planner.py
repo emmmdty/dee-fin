@@ -162,6 +162,203 @@ class SentenceLevelCountPlanner(nn.Module):
         return expected.clamp(min=1.0).round().to(torch.long)
 
 
+class ArgumentCoreferenceHead(nn.Module):
+    """Pairwise argument coreference head for R3 v4 (APCC).
+
+    For each candidate mention pair (m_i, m_j) of a given event type, predicts
+    `P(same_record | m_i, m_j, t)`. At inference time, `predict_clusters` thresholds
+    the affinity matrix and returns connected components; `n_t = #components`.
+
+    Inputs (forward):
+        span_repr:     [B, M_max, H] float — span pooled encoder representations.
+        span_role_id:  [B, M_max] long   — role index per mention; 0 = padding / no-role.
+        type_id:       [B] long          — event type id per document.
+        sent_pos:      [B, M_max] long   — sentence index of each mention (for pos embedding).
+        span_mask:     [B, M_max] bool   — valid mention mask.
+
+    Output:
+        affinity:      [B, M_max, M_max] float logits, symmetric, with diag forced to a
+                       very negative value (self-pair not used in BCE).
+    """
+
+    def __init__(
+        self,
+        hidden_size: int,
+        num_event_types: int,
+        num_roles: int,
+        *,
+        max_sentence_pos: int = 256,
+    ) -> None:
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.num_roles = num_roles
+        self.type_embedding = nn.Embedding(max(num_event_types, 1), hidden_size)
+        self.role_embedding = nn.Embedding(max(num_roles + 1, 1), hidden_size)  # 0 reserved for padding
+        self.sent_pos_embedding = nn.Embedding(max(max_sentence_pos + 1, 1), hidden_size)  # 0 reserved
+        self.span_proj = nn.Linear(hidden_size, hidden_size)
+        self.feature_proj = nn.Linear(hidden_size * 3, hidden_size)  # [span; role; sent_pos]
+        self.same_role_bias = nn.Parameter(torch.zeros(1))
+        self.same_sentence_bias = nn.Parameter(torch.zeros(1))
+        nn.init.zeros_(self.span_proj.bias)
+        nn.init.zeros_(self.feature_proj.bias)
+
+    def _build_query(
+        self,
+        span_repr: torch.Tensor,
+        span_role_id: torch.Tensor,
+        sent_pos: torch.Tensor,
+        type_id: torch.Tensor,
+    ) -> torch.Tensor:
+        device = next(self.parameters()).device
+        span_repr = span_repr.to(device=device, dtype=self.feature_proj.weight.dtype)
+        span_role_id = span_role_id.to(device=device, dtype=torch.long)
+        sent_pos = sent_pos.to(device=device, dtype=torch.long)
+        type_id = type_id.to(device=device, dtype=torch.long)
+        if span_repr.dim() == 2:
+            span_repr = span_repr.unsqueeze(0)
+            span_role_id = span_role_id.unsqueeze(0)
+            sent_pos = sent_pos.unsqueeze(0)
+        if type_id.dim() == 0:
+            type_id = type_id.unsqueeze(0)
+        batch_size, m_max, _ = span_repr.shape
+        if type_id.shape[0] == 1 and batch_size > 1:
+            type_id = type_id.expand(batch_size)
+
+        # clamp into legal embedding ranges to be robust to caller off-by-one
+        span_role_id = span_role_id.clamp(min=0, max=self.role_embedding.num_embeddings - 1)
+        sent_pos = sent_pos.clamp(min=0, max=self.sent_pos_embedding.num_embeddings - 1)
+
+        span_h = self.span_proj(span_repr)                                   # [B, M, H]
+        role_h = self.role_embedding(span_role_id)                            # [B, M, H]
+        sent_h = self.sent_pos_embedding(sent_pos)                            # [B, M, H]
+        type_h = self.type_embedding(type_id).unsqueeze(1).expand(-1, m_max, -1)  # [B, M, H]
+
+        features = torch.cat([span_h, role_h, sent_h], dim=-1)                # [B, M, 3H]
+        q = self.feature_proj(features) + type_h                              # [B, M, H]
+        return q
+
+    def forward(
+        self,
+        span_repr: torch.Tensor,
+        span_role_id: torch.Tensor,
+        sent_pos: torch.Tensor,
+        type_id: torch.Tensor,
+        span_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        q = self._build_query(span_repr, span_role_id, sent_pos, type_id)
+        scale = math.sqrt(max(self.hidden_size, 1))
+        affinity = torch.einsum("bih,bjh->bij", q, q) / scale                 # symmetric in (i,j)
+
+        # additive priors that exploit known structural signals (model can ignore by zeroing weight)
+        role_i = span_role_id.to(q.device).long().unsqueeze(2)
+        role_j = span_role_id.to(q.device).long().unsqueeze(1)
+        same_role = (role_i == role_j).to(dtype=affinity.dtype)
+        affinity = affinity + same_role * self.same_role_bias
+
+        sent_i = sent_pos.to(q.device).long().unsqueeze(2)
+        sent_j = sent_pos.to(q.device).long().unsqueeze(1)
+        same_sentence = (sent_i == sent_j).to(dtype=affinity.dtype)
+        affinity = affinity + same_sentence * self.same_sentence_bias
+
+        # diagonal is not a meaningful pair
+        diag_mask = torch.eye(affinity.shape[-1], dtype=torch.bool, device=affinity.device).unsqueeze(0)
+        affinity = affinity.masked_fill(diag_mask, -1e9)
+
+        if span_mask is not None:
+            mask = span_mask.to(device=affinity.device).bool()
+            if mask.dim() == 1:
+                mask = mask.unsqueeze(0)
+            invalid_i = (~mask).unsqueeze(2)
+            invalid_j = (~mask).unsqueeze(1)
+            affinity = affinity.masked_fill(invalid_i | invalid_j, -1e9)
+
+        return affinity
+
+
+def predict_clusters(
+    affinity: torch.Tensor,
+    span_mask: torch.Tensor,
+    *,
+    threshold: float,
+) -> list[set[int]]:
+    """Connected components over `sigmoid(affinity) >= threshold` adjacency.
+
+    `affinity` is a single doc's [M, M] logit matrix. Pads are filtered via `span_mask`.
+    Returns a list of clusters (sets of valid mention indices). Singletons are included.
+    """
+    if affinity.dim() != 2 or affinity.shape[0] != affinity.shape[1]:
+        raise ValueError(f"affinity must be [M, M]; got {tuple(affinity.shape)}")
+    m_max = int(affinity.shape[0])
+    valid = span_mask.to(torch.bool).reshape(-1).tolist()
+    if len(valid) != m_max:
+        raise ValueError("span_mask length must match affinity dimension")
+    if not any(valid):
+        return []
+
+    probs = torch.sigmoid(affinity.detach().cpu()).numpy()
+    parent = list(range(m_max))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for i in range(m_max):
+        if not valid[i]:
+            continue
+        for j in range(i + 1, m_max):
+            if not valid[j]:
+                continue
+            if probs[i, j] >= threshold:
+                union(i, j)
+
+    groups: dict[int, set[int]] = {}
+    for i in range(m_max):
+        if not valid[i]:
+            continue
+        root = find(i)
+        groups.setdefault(root, set()).add(i)
+    return list(groups.values())
+
+
+def coref_pair_loss(
+    affinity: torch.Tensor,
+    pair_labels: torch.Tensor,
+    eligible_mask: torch.Tensor,
+    *,
+    pos_weight: torch.Tensor | float,
+) -> torch.Tensor:
+    """Masked BCE over upper-triangle eligible pairs.
+
+    `affinity`, `pair_labels`, `eligible_mask` are all [B, M, M]. The function only
+    considers the strict upper triangle (i < j) to avoid double-counting and the
+    diagonal. Ambiguous pairs (those not in eligible_mask) contribute zero loss.
+    """
+    if affinity.shape != pair_labels.shape or affinity.shape != eligible_mask.shape:
+        raise ValueError("affinity / pair_labels / eligible_mask must share shape")
+    if affinity.dim() != 3:
+        raise ValueError("expected [B, M, M] tensors")
+    m_max = int(affinity.shape[-1])
+    device = affinity.device
+    upper = torch.triu(torch.ones((m_max, m_max), dtype=torch.bool, device=device), diagonal=1)
+    upper = upper.unsqueeze(0).expand_as(affinity)
+    mask = eligible_mask.to(dtype=torch.bool, device=device) & upper
+    if not bool(mask.any().item()):
+        return affinity.sum() * 0.0
+    weight = torch.as_tensor(pos_weight, dtype=affinity.dtype, device=device)
+    labels = pair_labels.to(device=device, dtype=affinity.dtype)
+    raw = F.binary_cross_entropy_with_logits(
+        affinity, labels, pos_weight=weight, reduction="none",
+    )
+    return (raw * mask.to(dtype=affinity.dtype)).sum() / mask.to(dtype=affinity.dtype).sum().clamp_min(1.0)
+
+
 class RecordPlanner(nn.Module):
     def __init__(
         self,
@@ -170,6 +367,8 @@ class RecordPlanner(nn.Module):
         k_max: int = 10,
         *,
         count_head_mode: str = "document",
+        num_roles: int = 0,
+        max_sentence_pos: int = 256,
     ) -> None:
         super().__init__()
         self.k_max = k_max
@@ -177,6 +376,13 @@ class RecordPlanner(nn.Module):
         self.type_gate = TypeGate(hidden_size, num_event_types)
         if count_head_mode == "sentence":
             self.count_planner = SentenceLevelCountPlanner(hidden_size, num_event_types)
+        elif count_head_mode == "coref":
+            self.count_planner = ArgumentCoreferenceHead(
+                hidden_size,
+                num_event_types,
+                num_roles=num_roles,
+                max_sentence_pos=max_sentence_pos,
+            )
         else:
             self.count_planner = CountPlanner(hidden_size, num_event_types)
 
@@ -187,6 +393,10 @@ class RecordPlanner(nn.Module):
         sentence_repr: torch.Tensor | None = None,
         sentence_mask: torch.Tensor | None = None,
         lexical_hit: torch.Tensor | None = None,
+        span_repr: torch.Tensor | None = None,
+        span_role_id: torch.Tensor | None = None,
+        span_sent_pos: torch.Tensor | None = None,
+        span_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         result: dict[str, torch.Tensor] = {
             "presence_logit": self.presence_logit(
@@ -201,6 +411,18 @@ class RecordPlanner(nn.Module):
             if sentence_repr is None:
                 raise ValueError("sentence_repr is required for sentence count head mode")
             result["sentence_count_logits"] = self.sentence_count_logits(type_id, sentence_repr)
+        elif self.count_head_mode == "coref":
+            if span_repr is None or span_role_id is None or span_sent_pos is None:
+                raise ValueError(
+                    "span_repr, span_role_id, span_sent_pos are required for coref count head mode"
+                )
+            result["coref_affinity"] = self.coref_affinity(
+                span_repr,
+                span_role_id,
+                span_sent_pos,
+                type_id,
+                span_mask=span_mask,
+            )
         else:
             result["log_lambda"] = self.count_log_lambda(
                 global_repr,
@@ -210,6 +432,21 @@ class RecordPlanner(nn.Module):
                 lexical_hit=lexical_hit,
             )
         return result
+
+    def coref_affinity(
+        self,
+        span_repr: torch.Tensor,
+        span_role_id: torch.Tensor,
+        span_sent_pos: torch.Tensor,
+        type_id: torch.Tensor,
+        span_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if self.count_head_mode != "coref":
+            raise RuntimeError(
+                f"coref_affinity is only available when count_head_mode='coref', "
+                f"got {self.count_head_mode!r}"
+            )
+        return self.count_planner(span_repr, span_role_id, span_sent_pos, type_id, span_mask=span_mask)
 
     def presence_logit(
         self,
@@ -265,6 +502,11 @@ class RecordPlanner(nn.Module):
                 "count_log_lambda is not available when count_head_mode='sentence'; "
                 "use sentence_count_logits + expected_count instead"
             )
+        if self.count_head_mode == "coref":
+            raise RuntimeError(
+                "count_log_lambda is not available when count_head_mode='coref'; "
+                "use coref_affinity + predict_clusters instead"
+            )
         return self.count_planner(
             global_repr,
             type_id,
@@ -283,6 +525,11 @@ class RecordPlanner(nn.Module):
         sentence_repr: torch.Tensor | None = None,
         sentence_mask: torch.Tensor | None = None,
         lexical_hit: torch.Tensor | None = None,
+        span_repr: torch.Tensor | None = None,
+        span_role_id: torch.Tensor | None = None,
+        span_sent_pos: torch.Tensor | None = None,
+        span_mask: torch.Tensor | None = None,
+        coref_threshold: float = 0.5,
     ) -> int:
         if not self.type_gate.predict_present(
             global_repr,
@@ -298,6 +545,30 @@ class RecordPlanner(nn.Module):
                 raise ValueError("sentence_repr and sentence_mask are required for sentence count head mode")
             count = self.expected_count(type_id, sentence_repr, sentence_mask)
             return int(count.reshape(-1)[0].item())
+        if self.count_head_mode == "coref":
+            if span_repr is None or span_role_id is None or span_sent_pos is None or span_mask is None:
+                raise ValueError(
+                    "span_repr, span_role_id, span_sent_pos, span_mask are required for coref count head mode"
+                )
+            affinity = self.coref_affinity(
+                span_repr,
+                span_role_id,
+                span_sent_pos,
+                type_id,
+                span_mask=span_mask,
+            )
+            # take the first (and only) batch row
+            if affinity.dim() == 3:
+                affinity_one = affinity[0]
+                mask_one = span_mask if span_mask.dim() == 1 else span_mask[0]
+            else:
+                affinity_one = affinity
+                mask_one = span_mask
+            if not bool(mask_one.to(torch.bool).any().item()):
+                # TypeGate fired but no candidate mentions extracted; can not contradict presence -> return 1.
+                return 1
+            clusters = predict_clusters(affinity_one, mask_one, threshold=coref_threshold)
+            return max(len(clusters), 1)
         return self.count_planner.predict_count(
             global_repr,
             type_id,

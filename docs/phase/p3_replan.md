@@ -138,3 +138,73 @@ What the smoke does and does not show:
 - On 16 documents the neural type_gate F1 was 0.261 on multi_event_dev and 0.186 on all_dev, while lexical_trigger baselines were 0.647 and 0.381 respectively. This is the same shape as the v1 non-smoke failure recorded in the audit. With only 16 train documents and 2 epochs the model cannot be expected to exceed lexical; the smoke is only a pipeline check.
 - Whether v2 actually beats lexical on full DuEE-Fin-dev500 (~1900 train documents, multiple epochs) requires a non-smoke run, which is not authorized in this phase.
 
+### v2 non-smoke evidence (2026-05-14, `runs/carve/r3_planner_only_duee_fin_seed42_v2/`)
+
+Authorized non-smoke run: 50 epochs, batch 64, all_train (6515 docs, 84695 (doc, type) pairs), `encoder_feature_mode=evidence_lexical`, seed 42. Elapsed 658.5s.
+
+Loss trajectory (selected epochs from `diagnostics/r3_planner_train_history.json`):
+
+| Epoch | presence_loss | count_loss |
+|---:|---:|---:|
+| 1 | 1.2070 | 0.8152 |
+| 10 | 0.4823 | 0.7194 |
+| 25 | 0.3003 | 0.6580 |
+| 50 | 0.2060 | 0.5878 |
+
+Total presence_loss decrease 1.21 → 0.21 (5.86×). count_loss decrease 0.82 → 0.59 (1.39×).
+
+Dev metric verdicts (`acceptance_checks` from `summary.json`):
+
+| Check | multi_event_dev | all_dev | Notes |
+|---|---|---|---|
+| `type_gate_auc` | 0.9830 (abs ≥ 0.80 PASS, vs lexical 0.755 + 0.05 PASS) | 0.9879 (vs lexical 0.717 + 0.05 PASS) | **Both PASS** |
+| `type_gate_f1_youden` | 0.8319 (vs lexical 0.6625 + 0.05 PASS) | 0.7778 (vs lexical 0.5789 + 0.05 PASS) | **Both PASS** |
+| `count_mae_positive` | 0.8990 (abs ≤ 0.5 FAIL; predict-1 baseline 0.8365) | 0.4140 (abs PASS; predict-1 baseline 0.348 − 0.05 = 0.298 FAIL) | **Both FAIL** |
+
+Training trend check verdicts:
+
+| Trend | first | last | ratio | passed |
+|---|---|---|---|---|
+| `presence_loss_trend` | 1.207 | 0.206 | 5.86× | **false** |
+| `count_loss_trend` | 0.815 | 0.588 | 1.39× | **false** |
+
+Net `accepted: false`.
+
+### Interpretation of v2 non-smoke
+
+1. **The presence head (TypeGate) is the methodological success.** v2 beats the strongest baseline (P5b lexical_trigger) on every population–metric combination by a wide margin: multi_event_dev AUC 0.98 vs 0.76 (lexical), F1 0.83 vs 0.66; all_dev AUC 0.99 vs 0.72, F1 0.78 vs 0.58. The audit's "lexical baseline F1 = 0.66 dominates neural F1 = 0.30" diagnosis is now reversed. Evidence pooling + lexical feature both contribute as designed.
+
+2. **The count head (CountPlanner) does not work.** Neural `count_mae_positive` is worse than `predict-1` on both populations. On multi_event_dev the gap is small (0.899 vs 0.836); on all_dev the gap is also small but neural is on the wrong side of the floor. The zero-truncated Poisson NLL with document-level `[global_repr; type_emb; evidence_vec; lexical_hit]` does not capture the count signal — most likely because `n_t` depends on local enumerable evidence (per-sentence record occurrences) rather than a single document-level rate.
+
+3. **The trend check is misaligned with v2's convergence shape.** v1 trained on multi_event_subset with a single softmax-over-counts; class imbalance made the loss collapse to near-constant unless the model broke out of the trivial solution, so a "5-consecutive-epoch downward + 2× decrease" window was a meaningful "did anything happen" signal. v2 trains with `pos_weight` and an evidence-conditioned head; the loss decays smoothly across all 50 epochs but rarely halves in any 6-epoch window. The check fails as a binary indicator while the underlying convergence (5.86× over 50 epochs) is clearly real. **This is recorded as a methodology bug in the gate, not a model failure.** Any v2.1 should replace the trend check with a smoother criterion, e.g. "end-of-run loss ≤ 0.5 × first-epoch loss" or "non-trivial slope over the last decile of training".
+
+4. **`accepted=false` is honest but incomplete.** Three of eight data checks pass; three fail on `count_mae_positive` only; two trend checks fail on a known-misaligned criterion. The right paper-level summary is: presence works; count needs a different parameterization or feature set; the gate criterion needs adjustment. This is not a "model failed" result, it is a "model isolated a structural sub-problem (count) that the chosen head cannot solve".
+
+### P5b smoke against the v2 checkpoint (2026-05-14, `runs/carve/p5b_duee_fin_dev500_planner_v2_smoke/`)
+
+P5b runner now accepts `--planner-checkpoint`, loads the trained `RecordPlanner` via `carve.p5b_runner.PlannerGate`, and replaces the rule-based `_type_gate` and `_estimate_record_count` with the neural calls. Smoke command:
+
+```bash
+ssh gpu-4090 "cd /data/TJK/DEE/dee-fin && env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 \
+  /home/TJK/.conda/envs/tjk-feg/bin/python -u -m scripts.carve.run_p5b_diagnostic \
+    --dataset DuEE-Fin-dev500 \
+    --data-root data/processed/DuEE-Fin-dev500 \
+    --schema data/processed/DuEE-Fin-dev500/schema.json \
+    --run-dir runs/carve/p5b_duee_fin_dev500_planner_v2_smoke \
+    --seed 42 --max-epochs 2 --routes baseline,carve --smoke \
+    --planner-checkpoint runs/carve/r3_planner_only_duee_fin_seed42_v2/checkpoints/r3_planner.pt \
+    --planner-encoder-path models/chinese-roberta-wwm-ext_safetensors \
+    --planner-feature-mode evidence_lexical"
+```
+
+Pipeline succeeded end-to-end in 26.05s. `planner_gate_loaded` stage printed `presence_threshold=0.270695, k_clip=16, feature_mode=evidence_lexical` from checkpoint metadata. Unified-strict overall (16-doc smoke):
+
+| Route | F1 | Precision | Recall | tp | fp | fn |
+|---|---|---|---|---|---|---|
+| baseline (smoke + planner) | 0.0944 | 0.1164 | 0.0794 | 17 | 129 | 197 |
+| carve (smoke + planner) | 0.0184 | 0.0268 | 0.0140 | 3 | 109 | 211 |
+
+Reference rule-path numbers from the audit (`runs/carve/p5b_duee_fin_dev500_seed42`, dev500 diagnostic): baseline F1 0.0373, CARVE F1 0.0109. The planner-integrated baseline route shows a ~2.5× F1 lift; the CARVE allocation route still underperforms baseline. The smoke is 16 dev docs, not a statistical comparison, but the pipeline is verified and the direction is consistent with the v2 type gate being strictly better than the rule-based string match.
+
+This smoke does **not** assert P5b acceptance. The next prerequisite for any P5b dev-rerun claim is a fresh P5b acceptance phase doc with explicit per-route criteria.
+

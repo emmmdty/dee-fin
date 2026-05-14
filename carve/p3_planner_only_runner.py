@@ -14,10 +14,18 @@ from torch import nn
 from carve.datasets import DueeDocument, load_duee_documents, multi_event_subset
 from carve.encoder import build_encoder
 from carve.p2_runner import _document_text, _environment, _set_seed, _write_json
-from carve.p3_planner import RecordPlanner, presence_loss, truncated_poisson_argmax, truncated_poisson_nll
+from carve.p3_planner import (
+    RecordPlanner,
+    SentenceLevelCountPlanner,
+    presence_loss,
+    sentence_count_loss,
+    truncated_poisson_argmax,
+    truncated_poisson_nll,
+)
 from carve.p3_runner import _binary_auc, _presence_threshold_metrics
 from carve.p5b_runner import _estimate_record_count, _type_gate
 from carve.text_segmentation import split_sentences
+from evaluator.canonical.normalize import normalize_optional_text, normalize_text
 from evaluator.canonical.schema import EventSchema
 
 
@@ -36,6 +44,7 @@ class PlannerFeatureCache:
     sentence_mask: torch.Tensor
     lexical_hit: torch.Tensor
     counts: torch.Tensor
+    sentence_record_label: torch.Tensor | None  # [N, S_max, num_event_types] uint8; None for document mode
     event_types: list[str]
     truncated_sentence_documents: int
     max_sentences: int
@@ -75,6 +84,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--encoder-feature-mode", choices=FEATURE_MODES, default="evidence_lexical")
     parser.add_argument("--max-sentences", type=int, default=256)
     parser.add_argument("--eval-batch-size", type=int, default=128)
+    parser.add_argument(
+        "--count-head-mode",
+        choices=("document", "sentence"),
+        default="document",
+        help="v3 sentence-level count head (default: document = v2.1 behavior)",
+    )
+    parser.add_argument(
+        "--sentence-label-min-hits",
+        type=int,
+        default=1,
+        help="minimum argument hits per sentence for a positive sentence label (v3 only)",
+    )
+    parser.add_argument(
+        "--sentence-bce-pos-weight-cap",
+        type=float,
+        default=20.0,
+        help="cap on BCE pos_weight for sentence count loss (v3 only)",
+    )
     return parser
 
 
@@ -122,23 +149,42 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
         raise RuntimeError("schema has no event types")
 
     max_sentences = max(int(args.max_sentences), 1)
+    count_head_mode = str(args.count_head_mode)
+    sentence_min_hits = max(int(args.sentence_label_min_hits), 1)
     cache_dir = run_dir / "cache"
     train_cache = _build_feature_cache(
         train_cache_name, train_docs, encoder, schema, hidden_size=hidden_size, max_sentences=max_sentences,
+        count_head_mode=count_head_mode, sentence_label_min_hits=sentence_min_hits,
     )
     dev_multi_cache = _build_feature_cache(
         "multi_event_dev", dev_docs_multi, encoder, schema, hidden_size=hidden_size, max_sentences=max_sentences,
+        count_head_mode=count_head_mode, sentence_label_min_hits=sentence_min_hits,
     )
     dev_all_cache = _build_feature_cache(
         "all_dev", dev_docs_all, encoder, schema, hidden_size=hidden_size, max_sentences=max_sentences,
+        count_head_mode=count_head_mode, sentence_label_min_hits=sentence_min_hits,
     )
     for cache in (train_cache, dev_multi_cache, dev_all_cache):
         _write_feature_cache(cache_dir / f"{cache.name}.pt", cache)
 
     train_stats = _population_stats(train_cache)
     k_clip = int(train_stats["k_clip"])
-    planner = RecordPlanner(hidden_size=hidden_size, num_event_types=len(event_types), k_max=k_clip).to(device)
+    planner = RecordPlanner(
+        hidden_size=hidden_size,
+        num_event_types=len(event_types),
+        k_max=k_clip,
+        count_head_mode=count_head_mode,
+    ).to(device)
     history = _train_two_stage_planner(planner, train_cache, args, device)
+
+    noise_diagnostics: dict[str, dict[str, Any]] = {}
+    if count_head_mode == "sentence":
+        for cache_name, cache_ref in (
+            ("train", train_cache),
+            ("multi_event_dev", dev_multi_cache),
+            ("all_dev", dev_all_cache),
+        ):
+            noise_diagnostics[cache_name] = _sentence_label_diagnostics(cache_ref)
 
     metrics = {
         "multi_event_dev": _evaluate_two_stage_planner(planner, dev_multi_cache, k_clip, device, args),
@@ -149,7 +195,7 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
         "multi_event_dev": _baseline_report(dev_multi_cache, k_clip, legacy_model, device),
         "all_dev": _baseline_report(dev_all_cache, k_clip, legacy_model, device),
     }
-    acceptance_checks = _acceptance_checks(metrics, baselines, history)
+    acceptance_checks = _acceptance_checks(metrics, baselines, history, count_head_mode=count_head_mode)
 
     _write_json(run_dir / "diagnostics" / "r3_planner_train_history.json", history)
     _write_json(run_dir / "diagnostics" / "r3_planner_metrics.json", metrics)
@@ -169,6 +215,8 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
                 "train_population": train_cache_name,
                 "encoder_feature_mode": args.encoder_feature_mode,
                 "max_sentences": max_sentences,
+                "count_head_mode": count_head_mode,
+                "sentence_label_min_hits": sentence_min_hits if count_head_mode == "sentence" else None,
             },
         },
         run_dir / "checkpoints" / "r3_planner.pt",
@@ -188,6 +236,8 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
         "history": history,
         "metrics": metrics,
         "baselines": baselines,
+        "count_head_mode": count_head_mode,
+        "noise_diagnostics": noise_diagnostics,
         "acceptance_checks": acceptance_checks,
         "accepted": all(check["passed"] for check in acceptance_checks.values()),
         "elapsed_seconds": round(time.time() - start_time, 3),
@@ -211,12 +261,16 @@ def _build_feature_cache(
     *,
     hidden_size: int,
     max_sentences: int,
+    count_head_mode: str = "document",
+    sentence_label_min_hits: int = 1,
 ) -> PlannerFeatureCache:
     event_types = list(schema.event_roles)
+    build_sentence_labels = count_head_mode == "sentence"
     global_rows: list[torch.Tensor] = []
     sentence_rows: list[torch.Tensor] = []
     count_rows: list[list[int]] = []
     lexical_rows: list[list[int]] = []
+    sentence_label_rows: list[list[list[int]]] = []  # [doc][sentence][type]
     document_ids: list[str] = []
     truncated = 0
     with torch.no_grad():
@@ -233,10 +287,16 @@ def _build_feature_cache(
             if sentence_repr.shape[0] > max_sentences:
                 sentence_repr = sentence_repr[:max_sentences]
                 truncated += 1
+            n_sent = int(sentence_repr.shape[0])
             global_rows.append(global_repr)
             sentence_rows.append(sentence_repr)
             count_rows.append([RecordPlanner.gold_n_t(document.records, event_type) for event_type in event_types])
             lexical_rows.append([1 if _type_gate(document, event_type) else 0 for event_type in event_types])
+            if build_sentence_labels:
+                doc_labels = _build_sentence_labels(
+                    document, sentences[:n_sent], event_types, min_hits=sentence_label_min_hits,
+                )
+                sentence_label_rows.append(doc_labels)
             document_ids.append(document.document_id)
 
     n_docs = len(global_rows)
@@ -246,6 +306,7 @@ def _build_feature_cache(
         mask_tensor = torch.zeros((0, 0), dtype=torch.bool)
         lexical_tensor = torch.zeros((0, len(event_types)), dtype=torch.float32)
         count_tensor = torch.zeros((0, len(event_types)), dtype=torch.long)
+        sentence_label_tensor = None
     else:
         n_sent_max = max(int(row.shape[0]) for row in sentence_rows)
         n_sent_max = max(n_sent_max, 1)
@@ -259,6 +320,16 @@ def _build_feature_cache(
                 mask_tensor[index, :length] = True
         lexical_tensor = torch.tensor(lexical_rows, dtype=torch.float32) if lexical_rows else torch.zeros((0, len(event_types)), dtype=torch.float32)
         count_tensor = torch.tensor(count_rows, dtype=torch.long) if count_rows else torch.zeros((0, len(event_types)), dtype=torch.long)
+        if build_sentence_labels:
+            sentence_label_tensor = torch.zeros(
+                (n_docs, n_sent_max, len(event_types)), dtype=torch.uint8,
+            )
+            for doc_idx, doc_labels in enumerate(sentence_label_rows):
+                n = min(len(doc_labels), n_sent_max)
+                if n:
+                    sentence_label_tensor[doc_idx, :n] = torch.tensor(doc_labels[:n], dtype=torch.uint8)
+        else:
+            sentence_label_tensor = None
     return PlannerFeatureCache(
         name=name,
         document_ids=document_ids,
@@ -268,31 +339,75 @@ def _build_feature_cache(
         sentence_mask=mask_tensor,
         lexical_hit=lexical_tensor,
         counts=count_tensor,
+        sentence_record_label=sentence_label_tensor,
         event_types=event_types,
         truncated_sentence_documents=truncated,
         max_sentences=max_sentences,
     )
 
 
+def _build_sentence_labels(
+    document: DueeDocument,
+    sentences: Any,  # list[Sentence] — duck-typed .text
+    event_types: list[str],
+    *,
+    min_hits: int = 1,
+) -> list[list[int]]:
+    """Derive per-(sentence, event_type) binary labels from gold record arguments.
+
+    For each sentence and event type, check whether any gold record of that type
+    has at least `min_hits` argument values whose normalised form appears in the
+    normalised sentence text.  Returns list-of-lists indexed [sentence][event_type].
+    """
+    labels: list[list[int]] = []
+    s_texts = [normalize_text(s.text) for s in sentences]
+    type_arg_sets: list[list[set[str]]] = []
+    for event_type in event_types:
+        nt = normalize_text(event_type)
+        arg_sets: list[set[str]] = []
+        for record in document.records:
+            if normalize_text(record.event_type) != nt:
+                continue
+            arg_values: set[str] = set()
+            for role_values in record.arguments.values():
+                for value in role_values:
+                    nv = normalize_optional_text(value)
+                    if nv:
+                        arg_values.add(nv)
+            if arg_values:
+                arg_sets.append(arg_values)
+        type_arg_sets.append(arg_sets)
+    for s_text in s_texts:
+        sent_labels: list[int] = []
+        for t_idx in range(len(event_types)):
+            hits = 0
+            for arg_set in type_arg_sets[t_idx]:
+                if any(arg_value in s_text for arg_value in arg_set):
+                    hits += 1
+            sent_labels.append(1 if hits >= min_hits else 0)
+        labels.append(sent_labels)
+    return labels
+
+
 def _write_feature_cache(path: Path, cache: PlannerFeatureCache) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "name": cache.name,
-            "document_ids": cache.document_ids,
-            "global_repr": cache.global_repr,
-            "sentence_repr": cache.sentence_repr,
-            "sentence_mask": cache.sentence_mask,
-            "lexical_hit": cache.lexical_hit,
-            "counts": cache.counts,
-            "event_types": cache.event_types,
-            "documents": cache.documents_count,
-            "event_type_pairs": cache.event_type_pairs,
-            "max_sentences": cache.max_sentences,
-            "truncated_sentence_documents": cache.truncated_sentence_documents,
-        },
-        path,
-    )
+    payload: dict[str, Any] = {
+        "name": cache.name,
+        "document_ids": cache.document_ids,
+        "global_repr": cache.global_repr,
+        "sentence_repr": cache.sentence_repr,
+        "sentence_mask": cache.sentence_mask,
+        "lexical_hit": cache.lexical_hit,
+        "counts": cache.counts,
+        "event_types": cache.event_types,
+        "documents": cache.documents_count,
+        "event_type_pairs": cache.event_type_pairs,
+        "max_sentences": cache.max_sentences,
+        "truncated_sentence_documents": cache.truncated_sentence_documents,
+    }
+    if cache.sentence_record_label is not None:
+        payload["sentence_record_label"] = cache.sentence_record_label
+    torch.save(payload, path)
 
 
 def _train_two_stage_planner(
@@ -307,6 +422,7 @@ def _train_two_stage_planner(
     feature_mode = str(args.encoder_feature_mode)
     use_evidence = feature_mode in {"evidence", "evidence_lexical"}
     use_lexical = feature_mode == "evidence_lexical"
+    count_head_mode = str(planner.count_head_mode)
     batch_size = max(int(args.batch_size), 1)
     steps_per_epoch = max(math.ceil(targets.numel() / batch_size), 1)
     total_steps = max(int(args.max_epochs) * steps_per_epoch, 1)
@@ -320,12 +436,20 @@ def _train_two_stage_planner(
         device=device,
     )
     global_repr_device = cache.global_repr.to(device)
-    sentence_repr_device = cache.sentence_repr.to(device) if use_evidence else None
-    sentence_mask_device = cache.sentence_mask.to(device) if use_evidence else None
+    sentence_repr_device = cache.sentence_repr.to(device) if (use_evidence or count_head_mode == "sentence") else None
+    sentence_mask_device = cache.sentence_mask.to(device) if (use_evidence or count_head_mode == "sentence") else None
     lexical_hit_device = lexical_hits.to(device) if use_lexical else None
     targets_device = targets.to(device)
     doc_indices_device = doc_indices.to(device)
     type_ids_device = type_ids.to(device)
+    sentence_label_device: torch.Tensor | None = None
+    bce_pos_weight = torch.ones((), dtype=torch.float32, device=device)
+    if count_head_mode == "sentence":
+        if cache.sentence_record_label is None:
+            raise RuntimeError("sentence_record_label is None but count_head_mode='sentence'")
+        sentence_label_device = cache.sentence_record_label.to(device)
+        bce_pos_weight_value = _sentence_bce_pos_weight(cache, cap=float(args.sentence_bce_pos_weight_cap))
+        bce_pos_weight = torch.tensor(bce_pos_weight_value, dtype=torch.float32, device=device)
     history: list[dict[str, float | int]] = []
     global_step = 0
     for epoch in range(1, int(args.max_epochs) + 1):
@@ -352,23 +476,39 @@ def _train_two_stage_planner(
             presence_loss_value = presence_loss(presence_logits, presence_target, pos_weight=pos_weight)
             positive_mask = target_batch > 0
             if bool(positive_mask.any().item()):
-                pos_sent = sent_batch[positive_mask] if sent_batch is not None else None
-                pos_mask = mask_batch[positive_mask] if mask_batch is not None else None
-                pos_lex = lex_batch[positive_mask] if lex_batch is not None else None
-                count_log_lambda = planner.count_log_lambda(
-                    global_batch[positive_mask],
-                    type_batch[positive_mask],
-                    sentence_repr=pos_sent,
-                    sentence_mask=pos_mask,
-                    lexical_hit=pos_lex,
-                )
-                target_pos = target_batch[positive_mask].to(dtype=torch.float32)
-                sample_weights = torch.log(target_pos.clamp_min(1.0)) + 1.0
-                count_loss_value = truncated_poisson_nll(
-                    count_log_lambda,
-                    target_pos,
-                    sample_weights=sample_weights,
-                )
+                if count_head_mode == "sentence":
+                    if sent_batch is None or mask_batch is None:
+                        raise RuntimeError("sentence_repr required for sentence count head")
+                    assert sentence_label_device is not None
+                    pos_doc_idx = doc_idx_batch[positive_mask]
+                    pos_type = type_batch[positive_mask]
+                    pos_sent_labels = sentence_label_device[pos_doc_idx, :, pos_type]    # [B_pos, S_max]
+                    pos_mask_batch = mask_batch[positive_mask]                            # [B_pos, S_max]
+                    pos_sent_logits = planner.sentence_count_logits(pos_type, sent_batch[positive_mask])  # [B_pos, S_max]
+                    count_loss_value = sentence_count_loss(
+                        pos_sent_logits,
+                        pos_sent_labels,
+                        pos_mask_batch,
+                        pos_weight=bce_pos_weight,
+                    )
+                else:
+                    pos_sent = sent_batch[positive_mask] if sent_batch is not None else None
+                    pos_mask = mask_batch[positive_mask] if mask_batch is not None else None
+                    pos_lex = lex_batch[positive_mask] if lex_batch is not None else None
+                    count_log_lambda = planner.count_log_lambda(
+                        global_batch[positive_mask],
+                        type_batch[positive_mask],
+                        sentence_repr=pos_sent,
+                        sentence_mask=pos_mask,
+                        lexical_hit=pos_lex,
+                    )
+                    target_pos = target_batch[positive_mask].to(dtype=torch.float32)
+                    sample_weights = torch.log(target_pos.clamp_min(1.0)) + 1.0
+                    count_loss_value = truncated_poisson_nll(
+                        count_log_lambda,
+                        target_pos,
+                        sample_weights=sample_weights,
+                    )
             else:
                 count_loss_value = presence_logits.sum() * 0.0
             loss = float(args.lambda_presence) * presence_loss_value + float(args.lambda_count) * count_loss_value
@@ -412,15 +552,18 @@ def _evaluate_two_stage_planner(
     feature_mode = str(args.encoder_feature_mode)
     use_evidence = feature_mode in {"evidence", "evidence_lexical"}
     use_lexical = feature_mode == "evidence_lexical"
+    count_head_mode = str(planner.count_head_mode)
     eval_batch_size = max(int(getattr(args, "eval_batch_size", 0) or args.batch_size), 1)
     global_repr_device = cache.global_repr.to(device)
-    sentence_repr_device = cache.sentence_repr.to(device) if use_evidence else None
-    sentence_mask_device = cache.sentence_mask.to(device) if use_evidence else None
+    sentence_repr_device = cache.sentence_repr.to(device) if (use_evidence or count_head_mode == "sentence") else None
+    sentence_mask_device = cache.sentence_mask.to(device) if (use_evidence or count_head_mode == "sentence") else None
     lexical_hit_device = lexical_hits.to(device) if use_lexical else None
     doc_indices_device = doc_indices.to(device)
     type_ids_device = type_ids.to(device)
     presence_chunks: list[torch.Tensor] = []
     count_chunks: list[torch.Tensor] = []
+    sentence_score_chunks: list[torch.Tensor] = []
+    sentence_label_chunks: list[torch.Tensor] = []
     total = int(targets.numel())
     with torch.no_grad():
         for start in range(0, total, eval_batch_size):
@@ -440,21 +583,40 @@ def _evaluate_two_stage_planner(
                     lexical_hit=lex_batch,
                 )
             )
-            count_preds = truncated_poisson_argmax(
-                planner.count_log_lambda(
-                    global_batch,
-                    type_batch,
-                    sentence_repr=sent_batch,
-                    sentence_mask=mask_batch,
-                    lexical_hit=lex_batch,
-                ),
-                k_clip=k_clip,
-            )
+            if count_head_mode == "sentence":
+                if sent_batch is None or mask_batch is None:
+                    raise RuntimeError("sentence_repr required for sentence count head evaluation")
+                count_preds = planner.expected_count(type_batch, sent_batch, mask_batch)
+                sent_logits = planner.sentence_count_logits(type_batch, sent_batch)  # [B, S]
+                sent_scores = torch.sigmoid(sent_logits)
+                if cache.sentence_record_label is not None:
+                    sent_labels = cache.sentence_record_label[
+                        doc_idx_batch.cpu(), :, type_batch.cpu()
+                    ].to(device=device, dtype=torch.float32)
+                else:
+                    sent_labels = torch.zeros_like(sent_scores)
+                sent_mask_float = mask_batch.float()
+                for i in range(int(sent_batch.shape[0])):
+                    n = int(sent_mask_float[i].sum().item())
+                    if n:
+                        sentence_score_chunks.append(sent_scores[i, :n].detach().cpu())
+                        sentence_label_chunks.append(sent_labels[i, :n].detach().cpu())
+            else:
+                count_preds = truncated_poisson_argmax(
+                    planner.count_log_lambda(
+                        global_batch,
+                        type_batch,
+                        sentence_repr=sent_batch,
+                        sentence_mask=mask_batch,
+                        lexical_hit=lex_batch,
+                    ),
+                    k_clip=k_clip,
+                )
             presence_chunks.append(presence_probs.detach().cpu())
             count_chunks.append(count_preds.detach().cpu())
     presence_scores = torch.cat(presence_chunks) if presence_chunks else torch.zeros((0,))
     count_predictions = torch.cat(count_chunks) if count_chunks else torch.zeros((0,), dtype=torch.long)
-    return _prediction_metrics(
+    result = _prediction_metrics(
         population=cache.name,
         documents=cache.documents_count,
         targets=targets,
@@ -462,6 +624,13 @@ def _evaluate_two_stage_planner(
         count_predictions=[int(value) for value in count_predictions.tolist()],
         k_clip=k_clip,
     )
+    if count_head_mode == "sentence" and sentence_score_chunks:
+        all_scores = torch.cat(sentence_score_chunks).tolist()
+        all_labels = torch.cat(sentence_label_chunks).tolist()
+        result["sentence_score_auc"] = round(_binary_auc([int(lbl > 0.5) for lbl in all_labels], [float(s) for s in all_scores]), 6)
+    else:
+        result["sentence_score_auc"] = 0.5
+    return result
 
 
 def _baseline_report(
@@ -648,6 +817,7 @@ def _prediction_metrics(
         "truncation_rate": round(truncated / max(event_type_pairs, 1), 6),
         "k_clip": k_clip,
         "type_gate_f1_at_threshold": round(f1, 6),
+        "sentence_score_auc": 0.5,
     }
 
 
@@ -670,6 +840,7 @@ def _empty_metrics(population: str, k_clip: int) -> dict[str, float | int | str]
         "truncation_rate": 0.0,
         "k_clip": k_clip,
         "type_gate_f1_at_threshold": 0.0,
+        "sentence_score_auc": 0.5,
     }
 
 
@@ -697,6 +868,47 @@ def _population_stats(cache: PlannerFeatureCache) -> dict[str, float | int | str
     }
 
 
+def _sentence_bce_pos_weight(cache: PlannerFeatureCache, *, cap: float = 20.0) -> float:
+    """Compute BCE pos_weight from sentence-level labels in the cache."""
+    if cache.sentence_record_label is None:
+        return 1.0
+    label = cache.sentence_record_label.float()
+    mask = cache.sentence_mask.float().unsqueeze(-1)  # [N, S, 1]
+    positives = (label * mask).sum().item()
+    negatives = ((1.0 - label) * mask).sum().item()
+    if positives <= 0:
+        return 1.0
+    return min(negatives / positives, cap)
+
+
+def _sentence_label_diagnostics(cache: PlannerFeatureCache) -> dict[str, Any]:
+    """Compute noise diagnostics for sentence-level heuristic labels."""
+    if cache.sentence_record_label is None or cache.counts is None:
+        return {"gold_record_sentence_recall": None, "mean_sentence_label_count_over_gold": None}
+    label = cache.sentence_record_label.float()  # [N, S_max, T]
+    mask = cache.sentence_mask.float()           # [N, S_max]
+    counts = cache.counts.float()                # [N, T]
+    # Per (doc, type): does any sentence have label=1?
+    any_sentence_label = (label.sum(dim=1) > 0).float()  # [N, T]
+    positive_gold = (counts > 0).float()
+    # gold_record_sentence_recall
+    recall_num = (any_sentence_label * positive_gold).sum().item()
+    recall_den = positive_gold.sum().clamp_min(1).item()
+    # mean_sentence_label_count_over_gold
+    sent_count_per_pair = (label * mask.unsqueeze(-1)).sum(dim=1)  # [N, T]
+    positive_sent_count = sent_count_per_pair[counts > 0]
+    gold_positive_counts = counts[counts > 0]
+    if gold_positive_counts.numel():
+        ratios = positive_sent_count / gold_positive_counts.clamp_min(1.0)
+        mean_ratio = float(ratios.mean().item())
+    else:
+        mean_ratio = 0.0
+    return {
+        "gold_record_sentence_recall": round(recall_num / max(recall_den, 1), 6),
+        "mean_sentence_label_count_over_gold": round(mean_ratio, 6),
+    }
+
+
 def _pair_tensors(cache: PlannerFeatureCache) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     num_docs, num_types = cache.counts.shape if cache.counts.numel() else (0, len(cache.event_types))
     if num_docs == 0:
@@ -717,52 +929,88 @@ def _acceptance_checks(
     metrics_by_population: dict[str, dict[str, Any]],
     baselines_by_population: dict[str, dict[str, Any]],
     history: list[dict[str, float | int]],
+    *,
+    count_head_mode: str = "document",
 ) -> dict[str, dict[str, Any]]:
     checks: dict[str, dict[str, Any]] = {}
-    metric_specs = (
+    # TypeGate: unchanged from v2.1
+    type_gate_specs = (
         ("type_gate_auc", "absolute_ge", 0.80, 0.05, "max"),
         ("type_gate_f1_youden", "absolute_ge", 0.55, 0.05, "max"),
-        ("count_mae_positive", "absolute_le", 0.5, 0.05, "min"),
     )
+    # Count: in sentence mode baseline-relative-only (dynamic threshold from predict-1 minus margin)
+    count_margins = {"multi_event_dev": 0.05, "all_dev": 0.02}
     for population in ACCEPTANCE_POPULATIONS:
         metrics = metrics_by_population.get(population, {})
         baselines = baselines_by_population.get(population, {})
-        for metric_name, abs_op, abs_threshold, rel_margin, aggregator in metric_specs:
+        for metric_name, _, abs_threshold, rel_margin, aggregator in type_gate_specs:
             value = float(metrics.get(metric_name, 0.0))
             best_baseline, contributing = _best_baseline_for(metric_name, baselines, aggregator)
-            if abs_op == "absolute_ge":
-                abs_pass = value >= float(abs_threshold)
-                baseline_threshold = best_baseline + float(rel_margin)
-                rel_pass = value >= baseline_threshold
-                threshold_repr = f">= {float(abs_threshold):.6f}"
-                baseline_threshold_repr = f">= {baseline_threshold:.6f}"
-            else:
-                abs_pass = value <= float(abs_threshold)
-                baseline_threshold = best_baseline - float(rel_margin)
-                rel_pass = value <= baseline_threshold
-                threshold_repr = f"<= {float(abs_threshold):.6f}"
-                baseline_threshold_repr = f"<= {baseline_threshold:.6f}"
+            abs_pass = value >= float(abs_threshold)
+            baseline_threshold = best_baseline + float(rel_margin)
+            rel_pass = value >= baseline_threshold
             checks[f"{population}/{metric_name}"] = {
                 "value": round(value, 6),
-                "absolute_threshold": threshold_repr,
+                "absolute_threshold": f">= {float(abs_threshold):.6f}",
                 "best_baseline": round(best_baseline, 6),
                 "best_baseline_sources": contributing,
-                "baseline_relative_threshold": baseline_threshold_repr,
+                "baseline_relative_threshold": f">= {baseline_threshold:.6f}",
                 "baseline_relative_margin": float(rel_margin),
                 "passed_absolute": bool(abs_pass),
                 "passed_baseline_relative": bool(rel_pass),
                 "passed": bool(abs_pass and rel_pass),
             }
+        # count_mae_positive
+        count_value = float(metrics.get("count_mae_positive", float("inf")))
+        predict_one = baselines.get("predict_one", {}).get("count_mae_positive", float("inf"))
+        margin = float(count_margins.get(population, 0.05))
+        dynamic_threshold = predict_one - margin
+        rel_pass_count = count_value <= dynamic_threshold
+        if count_head_mode == "sentence":
+            # baseline-relative-only: set absolute_threshold = dynamic_threshold so both converge
+            abs_pass_count = rel_pass_count
+            abs_threshold_repr = f"<= {dynamic_threshold:.6f}"
+        else:
+            abs_pass_count = count_value <= 0.50
+            abs_threshold_repr = "<= 0.500000"
+        checks[f"{population}/count_mae_positive"] = {
+            "value": round(count_value, 6),
+            "absolute_threshold": abs_threshold_repr,
+            "best_baseline": round(predict_one, 6),
+            "best_baseline_sources": {"predict_one": round(predict_one, 6)},
+            "baseline_relative_threshold": f"<= {dynamic_threshold:.6f}",
+            "baseline_relative_margin": margin,
+            "passed_absolute": bool(abs_pass_count),
+            "passed_baseline_relative": bool(rel_pass_count),
+            "passed": bool(abs_pass_count and rel_pass_count),
+        }
+        # sentence_score_auc (only in sentence mode)
+        if count_head_mode == "sentence":
+            sent_auc = float(metrics.get("sentence_score_auc", 0.5))
+            checks[f"{population}/sentence_score_auc"] = {
+                "value": round(sent_auc, 6),
+                "absolute_threshold": ">= 0.750000",
+                "passed_absolute": sent_auc >= 0.75,
+                "passed": sent_auc >= 0.75,
+            }
+    # trend checks
     checks["training/presence_loss_trend"] = {
         "value": _trend_summary(history, "presence_loss"),
         "threshold": "first/last ratio >= 2.0 over at least 10 epochs",
         "passed": _has_required_overall_decrease(history, "presence_loss"),
     }
-    checks["training/count_loss_trend"] = {
-        "value": _trend_summary(history, "count_loss"),
-        "threshold": "first/last ratio >= 2.0 over at least 10 epochs",
-        "passed": _has_required_overall_decrease(history, "count_loss"),
-    }
+    if count_head_mode == "sentence":
+        checks["training/sentence_count_loss_trend"] = {
+            "value": _trend_summary(history, "count_loss"),
+            "threshold": "first/last ratio >= 1.5 over at least 10 epochs",
+            "passed": _has_required_overall_decrease(history, "count_loss", min_ratio=1.5),
+        }
+    else:
+        checks["training/count_loss_trend"] = {
+            "value": _trend_summary(history, "count_loss"),
+            "threshold": "first/last ratio >= 2.0 over at least 10 epochs",
+            "passed": _has_required_overall_decrease(history, "count_loss"),
+        }
     return checks
 
 

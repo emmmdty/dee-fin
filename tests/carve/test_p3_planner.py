@@ -5,10 +5,12 @@ import torch
 from carve.p3_planner import (
     CountPlanner,
     RecordPlanner,
+    SentenceLevelCountPlanner,
     TypeGate,
     _planner_features,
     planner_loss,
     presence_loss,
+    sentence_count_loss,
     truncated_poisson_argmax,
     truncated_poisson_nll,
 )
@@ -166,6 +168,73 @@ class P3PlannerTests(unittest.TestCase):
         evidence_slice = slice(4, 6)
         self.assertTrue(torch.allclose(empty_features[0, evidence_slice], torch.zeros((2,))))
         self.assertFalse(torch.allclose(full_features[0, evidence_slice], torch.zeros((2,))))
+
+
+    def test_sentence_level_count_planner_forward_shapes(self) -> None:
+        planner = SentenceLevelCountPlanner(hidden_size=4, num_event_types=2)
+        sentence_repr = torch.randn(3, 5, 4)  # [B=3, S=5, H=4]
+        type_id = torch.tensor([0, 1, 0])
+
+        logits = planner.forward(type_id, sentence_repr)
+
+        self.assertEqual(logits.shape, (3, 5))  # [B, S]
+
+    def test_sentence_count_loss_masking(self) -> None:
+        logits = torch.randn(3, 5)
+        labels = torch.ones(3, 5)
+        mask = torch.tensor([
+            [True, True, False, False, False],
+            [True, False, False, False, False],
+            [False, False, False, False, False],
+        ])
+        loss = float(sentence_count_loss(logits, labels, mask, pos_weight=1.0).item())
+
+        self.assertGreater(loss, 0.0)
+        # Masked positions should not contribute: if only mask=True positions are
+        # computed, loss should be identical to a version where masked positions are random.
+        labels_offset = labels.clone()
+        labels_offset[0, 2:] = 99.0
+        labels_offset[1, 1:] = 99.0
+        labels_offset[2, :] = 99.0
+        loss_offset = float(sentence_count_loss(logits, labels_offset, mask, pos_weight=1.0).item())
+        self.assertAlmostEqual(loss, loss_offset, places=4)
+
+    def test_sentence_aggregated_count_matches_label_when_perfect(self) -> None:
+        planner = SentenceLevelCountPlanner(hidden_size=4, num_event_types=2)
+        # freeze the scorer so it outputs very confident predictions
+        with torch.no_grad():
+            planner.scorer[0].weight.zero_()
+            planner.scorer[0].bias.zero_()
+            planner.scorer[2].weight.zero_()
+            # Set bias so logit ≈ +10 for all positions → sigmoid ≈ 1.0
+            planner.scorer[2].bias.fill_(10.0)
+            planner.type_embedding.weight.zero_()
+
+        sentence_repr = torch.randn(2, 4, 4)
+        mask = torch.tensor([[True, True, True, False], [True, True, False, False]])
+        type_id = torch.tensor([0, 0])
+
+        count = planner.expected_count(type_id, sentence_repr, mask)
+
+        # With bias=10, sigmoid ≈ 1.0, so expected sum = masked sentence count
+        self.assertEqual(int(count[0].item()), 3)  # 3 valid sentences
+        self.assertEqual(int(count[1].item()), 2)  # 2 valid sentences
+
+    def test_record_planner_sentence_mode_integration(self) -> None:
+        planner = RecordPlanner(
+            hidden_size=4, num_event_types=2, k_max=5, count_head_mode="sentence",
+        )
+        self.assertEqual(planner.count_head_mode, "sentence")
+        self.assertIsInstance(planner.count_planner, SentenceLevelCountPlanner)
+
+        # In sentence mode, count_log_lambda should raise
+        with self.assertRaises(RuntimeError):
+            planner.count_log_lambda(torch.zeros((1, 4)), torch.tensor([0]))
+
+        # sentence_count_logits should work
+        sent_repr = torch.randn(2, 3, 4)
+        logits = planner.sentence_count_logits(torch.tensor([0, 1]), sent_repr)
+        self.assertEqual(logits.shape, (2, 3))
 
 
 if __name__ == "__main__":

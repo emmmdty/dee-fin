@@ -83,10 +83,13 @@ class PlannerGate:
             )
         self.presence_threshold = float(presence_threshold)
         self.metadata = metadata
+        count_head_mode = str(metadata.get("count_head_mode") or "document")
+        self.count_head_mode = count_head_mode
         self.planner = RecordPlanner(
             hidden_size=hidden_size,
             num_event_types=len(event_types),
             k_max=self.k_clip,
+            count_head_mode=count_head_mode,
         ).to(device)
         self.planner.load_state_dict(payload["planner"])
         self.planner.eval()
@@ -99,7 +102,7 @@ class PlannerGate:
         if type_id is None:
             return False, 0
         global_repr, sentence_repr, sentence_mask = self._encode(document)
-        if self.feature_mode in {"evidence", "evidence_lexical"}:
+        if self.feature_mode in {"evidence", "evidence_lexical"} or self.count_head_mode == "sentence":
             sentence_kwarg = sentence_repr
             mask_kwarg = sentence_mask
         else:
@@ -121,14 +124,19 @@ class PlannerGate:
         present_prob = float(torch.sigmoid(presence_logit).reshape(-1)[0].item())
         if present_prob < self.presence_threshold:
             return False, 0
-        log_lambda = self.planner.count_log_lambda(
-            global_repr,
-            type_tensor,
-            sentence_repr=sentence_kwarg,
-            sentence_mask=mask_kwarg,
-            lexical_hit=lexical_kwarg,
-        )
-        count = int(truncated_poisson_argmax(log_lambda, k_clip=self.k_clip).reshape(-1)[0].item())
+        if self.count_head_mode == "sentence":
+            if sentence_kwarg is None or mask_kwarg is None:
+                raise ValueError("sentence_repr required for sentence count head in PlannerGate")
+            count = int(self.planner.expected_count(type_tensor, sentence_kwarg, mask_kwarg).reshape(-1)[0].item())
+        else:
+            log_lambda = self.planner.count_log_lambda(
+                global_repr,
+                type_tensor,
+                sentence_repr=sentence_kwarg,
+                sentence_mask=mask_kwarg,
+                lexical_hit=lexical_kwarg,
+            )
+            count = int(truncated_poisson_argmax(log_lambda, k_clip=self.k_clip).reshape(-1)[0].item())
         return True, max(count, 1)
 
     @torch.no_grad()

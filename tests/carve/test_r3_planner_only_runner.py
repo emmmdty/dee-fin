@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import torch
+
 from carve.p3_planner_only_runner import build_arg_parser, run_r3_planner_only
 
 
@@ -198,6 +200,87 @@ class R3PlannerOnlyRunnerTests(unittest.TestCase):
             )
             report = run_r3_planner_only(args)
             self.assertEqual(report["train_population"]["name"], "multi_event_train")
+
+    def test_smoke_run_sentence_mode_writes_artifacts_and_noise_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = self._write_toy_dataset(root / "data")
+            run_dir = root / "run"
+
+            args = build_arg_parser().parse_args(
+                [
+                    "--dataset", "DuEE-Fin-dev500",
+                    "--data-root", str(data_root),
+                    "--schema", str(data_root / "schema.json"),
+                    "--run-dir", str(run_dir),
+                    "--model-path", "__toy__",
+                    "--max-epochs", "2",
+                    "--batch-size", "2",
+                    "--smoke",
+                    "--encoder-feature-mode", "evidence_lexical",
+                    "--count-head-mode", "sentence",
+                ]
+            )
+            report = run_r3_planner_only(args)
+
+            self.assertEqual(report["status"], "r3_planner_only_smoke")
+            self.assertEqual(report["count_head_mode"], "sentence")
+            # Noise diagnostics must be present for sentence mode
+            noise = report["noise_diagnostics"]
+            self.assertIn("train", noise)
+            self.assertIn("multi_event_dev", noise)
+            self.assertIn("all_dev", noise)
+            for key in ("train", "multi_event_dev", "all_dev"):
+                self.assertIn("gold_record_sentence_recall", noise[key])
+                self.assertIn("mean_sentence_label_count_over_gold", noise[key])
+            # Checkpoint must record count_head_mode
+            checkpoint_path = run_dir / "checkpoints" / "r3_planner.pt"
+            self.assertTrue(checkpoint_path.exists())
+            ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+            self.assertEqual(
+                ckpt.get("planner_metadata", {}).get("count_head_mode"), "sentence",
+            )
+            # Acceptance checks must include sentence_mode keys
+            checks = report["acceptance_checks"]
+            self.assertIn("multi_event_dev/sentence_score_auc", checks)
+            self.assertIn("all_dev/sentence_score_auc", checks)
+            self.assertIn("training/sentence_count_loss_trend", checks)
+
+    def test_acceptance_count_uses_baseline_relative_only_in_sentence_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = self._write_toy_dataset(root / "data")
+            run_dir = root / "run"
+
+            args = build_arg_parser().parse_args(
+                [
+                    "--dataset", "DuEE-Fin-dev500",
+                    "--data-root", str(data_root),
+                    "--schema", str(data_root / "schema.json"),
+                    "--run-dir", str(run_dir),
+                    "--model-path", "__toy__",
+                    "--max-epochs", "1",
+                    "--batch-size", "4",
+                    "--smoke",
+                    "--count-head-mode", "sentence",
+                ]
+            )
+            report = run_r3_planner_only(args)
+            checks = report["acceptance_checks"]
+
+            # In sentence mode, count_mae_positive absolute_threshold should reflect
+            # the dynamic baseline-relative gate (predict_one - margin), not hardcoded 0.5
+            for pop in ("multi_event_dev", "all_dev"):
+                count_entry = checks[f"{pop}/count_mae_positive"]
+                self.assertIn("best_baseline", count_entry)
+                self.assertIn("baseline_relative_threshold", count_entry)
+                self.assertIn("passed_baseline_relative", count_entry)
+                # The absolute threshold should match the baseline-relative threshold
+                # (they converge in sentence mode)
+                self.assertEqual(
+                    count_entry["absolute_threshold"],
+                    count_entry["baseline_relative_threshold"],
+                )
 
     @staticmethod
     def _write_toy_dataset(data_root: Path) -> Path:

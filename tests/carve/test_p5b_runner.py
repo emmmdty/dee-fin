@@ -259,5 +259,59 @@ class P5BDiagnosticRunnerTests(unittest.TestCase):
             self.assertIn("baseline", report["routes"])
 
 
+    def test_planner_gate_loads_sentence_mode_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkpoint_path = root / "r3_planner.pt"
+            event_types = ["质押", "收购"]
+            # Build a sentence-mode checkpoint
+            planner = RecordPlanner(
+                hidden_size=4, num_event_types=len(event_types), k_max=3, count_head_mode="sentence",
+            )
+            with torch.no_grad():
+                planner.type_gate.proj.weight.zero_()
+                planner.type_gate.proj.bias.fill_(10.0)  # always present
+                planner.count_planner.scorer[0].weight.zero_()
+                planner.count_planner.scorer[0].bias.zero_()
+                planner.count_planner.scorer[2].weight.zero_()
+                planner.count_planner.scorer[2].bias.fill_(10.0)  # always predict count=1
+                planner.count_planner.type_embedding.weight.zero_()
+            payload = {
+                "planner": planner.state_dict(),
+                "planner_metadata": {
+                    "event_types": event_types,
+                    "hidden_size": 4,
+                    "k_clip": 3,
+                    "count_head_mode": "sentence",
+                    "presence_threshold_all_dev": 0.5,
+                    "encoder_feature_mode": "global_only",
+                    "max_sentences": 256,
+                },
+            }
+            torch.save(payload, checkpoint_path)
+
+            gate = PlannerGate(
+                checkpoint_path=checkpoint_path,
+                encoder=None,
+                feature_mode="global_only",
+                presence_threshold=None,
+                device=torch.device("cpu"),
+            )
+            self.assertEqual(gate.count_head_mode, "sentence")
+
+            # predict on a toy document (no encoder → zeros repr = constant)
+            doc = DueeDocument(
+                document_id="d1",
+                title="质押",
+                text="公司进行了质押。",
+                records=[],
+            )
+            present, count = gate.predict(doc, "质押")
+            # With presence_bias=10, always present; with sentence_scorer_bias=10,
+            # sigmoid≈1.0 for every sentence → expected count clamped to ≥1
+            self.assertTrue(present)
+            self.assertGreaterEqual(count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

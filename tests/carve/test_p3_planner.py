@@ -5,6 +5,8 @@ import torch
 from carve.p3_planner import (
     CountPlanner,
     RecordPlanner,
+    TypeGate,
+    _planner_features,
     planner_loss,
     presence_loss,
     truncated_poisson_argmax,
@@ -86,6 +88,64 @@ class P3PlannerTests(unittest.TestCase):
         predicted = planner.predict_count(torch.zeros((1, 2)), torch.tensor([0]), k_clip=16)
 
         self.assertEqual(predicted, 16)
+
+    def test_type_gate_uses_evidence_vec_when_sentence_repr_varies(self) -> None:
+        torch.manual_seed(0)
+        gate = TypeGate(hidden_size=4, num_event_types=2)
+        global_repr = torch.zeros((1, 4))
+        type_id = torch.tensor([0])
+        sentence_a = torch.zeros((1, 3, 4))
+        sentence_a[0, 0] = torch.tensor([1.0, 0.0, 0.0, 0.0])
+        sentence_b = torch.zeros((1, 3, 4))
+        sentence_b[0, 0] = torch.tensor([0.0, 1.0, 0.0, 0.0])
+        mask = torch.ones((1, 3), dtype=torch.bool)
+
+        logit_a = float(gate(global_repr, type_id, sentence_repr=sentence_a, sentence_mask=mask).item())
+        logit_b = float(gate(global_repr, type_id, sentence_repr=sentence_b, sentence_mask=mask).item())
+
+        self.assertNotAlmostEqual(logit_a, logit_b, places=5)
+
+    def test_type_gate_lexical_hit_changes_logit(self) -> None:
+        gate = TypeGate(hidden_size=2, num_event_types=1)
+        with torch.no_grad():
+            gate.proj.weight.zero_()
+            gate.proj.weight[0, -1] = 5.0
+            gate.proj.bias.zero_()
+        global_repr = torch.zeros((1, 2))
+        type_id = torch.tensor([0])
+
+        logit_with_hit = float(gate(global_repr, type_id, lexical_hit=torch.tensor([1.0])).item())
+        logit_without_hit = float(gate(global_repr, type_id, lexical_hit=torch.tensor([0.0])).item())
+
+        self.assertAlmostEqual(logit_with_hit - logit_without_hit, 5.0, places=5)
+
+    def test_planner_features_global_only_backward_compat(self) -> None:
+        embedding = torch.nn.Embedding(2, 3)
+        torch.nn.init.constant_(embedding.weight, 0.0)
+        global_repr = torch.tensor([[1.0, 2.0, 3.0]])
+        type_id = torch.tensor([0])
+
+        features = _planner_features(global_repr, type_id, embedding)
+
+        self.assertEqual(features.shape, (1, 3 * 3 + 1))
+        self.assertTrue(torch.allclose(features[0, :3], torch.tensor([1.0, 2.0, 3.0])))
+        self.assertTrue(torch.allclose(features[0, 3:], torch.zeros((7,))))
+
+    def test_padding_mask_excludes_zero_sentences(self) -> None:
+        embedding = torch.nn.Embedding(1, 2)
+        torch.nn.init.constant_(embedding.weight, 1.0)
+        global_repr = torch.zeros((1, 2))
+        type_id = torch.tensor([0])
+        sentence_repr = torch.tensor([[[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]]])
+        full_mask = torch.tensor([[True, True, True]])
+        empty_mask = torch.tensor([[False, False, False]])
+
+        full_features = _planner_features(global_repr, type_id, embedding, sentence_repr=sentence_repr, sentence_mask=full_mask)
+        empty_features = _planner_features(global_repr, type_id, embedding, sentence_repr=sentence_repr, sentence_mask=empty_mask)
+
+        evidence_slice = slice(4, 6)
+        self.assertTrue(torch.allclose(empty_features[0, evidence_slice], torch.zeros((2,))))
+        self.assertFalse(torch.allclose(full_features[0, evidence_slice], torch.zeros((2,))))
 
 
 if __name__ == "__main__":

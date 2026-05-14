@@ -6,7 +6,7 @@ from carve.p3_planner_only_runner import build_arg_parser, run_r3_planner_only
 
 
 class R3PlannerOnlyRunnerTests(unittest.TestCase):
-    def test_smoke_run_writes_artifacts_and_separate_populations(self) -> None:
+    def test_smoke_run_writes_artifacts_and_dual_population_acceptance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             data_root = self._write_toy_dataset(root / "data")
@@ -29,18 +29,19 @@ class R3PlannerOnlyRunnerTests(unittest.TestCase):
                     "--batch-size",
                     "2",
                     "--smoke",
+                    "--encoder-feature-mode",
+                    "evidence_lexical",
                 ]
             )
             report = run_r3_planner_only(args)
 
             self.assertEqual(report["status"], "r3_planner_only_smoke")
-            self.assertEqual(report["acceptance_population"], "multi_event_dev")
-            self.assertEqual(report["train_population"]["name"], "multi_event_train")
-            self.assertEqual(report["train_population"]["documents"], 2)
+            self.assertEqual(report["acceptance_population"], ["multi_event_dev", "all_dev"])
+            self.assertEqual(report["encoder_feature_mode"], "evidence_lexical")
+            self.assertEqual(report["train_population"]["name"], "all_train")
             self.assertEqual(report["dev_populations"]["multi_event_dev"]["documents"], 1)
             self.assertEqual(report["dev_populations"]["all_dev"]["documents"], 2)
-            self.assertIn("all_dev", report["diagnostic_populations"])
-            self.assertNotIn("all_dev", report["acceptance_checks"])
+            self.assertEqual(report["diagnostic_populations"], [])
             self.assertTrue((run_dir / "diagnostics" / "r3_planner_train_history.json").exists())
             self.assertTrue((run_dir / "diagnostics" / "r3_planner_metrics.json").exists())
             self.assertTrue((run_dir / "diagnostics" / "r3_planner_baselines.json").exists())
@@ -85,6 +86,118 @@ class R3PlannerOnlyRunnerTests(unittest.TestCase):
                 0.5,
             )
             self.assertEqual(baselines["multi_event_dev"]["legacy_single_softmax"]["diagnostic_only"], True)
+
+    def test_dual_population_acceptance_checks_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = self._write_toy_dataset(root / "data")
+            run_dir = root / "run"
+
+            args = build_arg_parser().parse_args(
+                [
+                    "--dataset",
+                    "DuEE-Fin-dev500",
+                    "--data-root",
+                    str(data_root),
+                    "--schema",
+                    str(data_root / "schema.json"),
+                    "--run-dir",
+                    str(run_dir),
+                    "--model-path",
+                    "__toy__",
+                    "--max-epochs",
+                    "1",
+                    "--batch-size",
+                    "4",
+                    "--smoke",
+                ]
+            )
+            report = run_r3_planner_only(args)
+            checks = report["acceptance_checks"]
+
+            expected_keys = {
+                "multi_event_dev/type_gate_auc",
+                "multi_event_dev/type_gate_f1_youden",
+                "multi_event_dev/count_mae_positive",
+                "all_dev/type_gate_auc",
+                "all_dev/type_gate_f1_youden",
+                "all_dev/count_mae_positive",
+                "training/presence_loss_trend",
+                "training/count_loss_trend",
+            }
+            self.assertTrue(expected_keys.issubset(set(checks.keys())))
+            for key in (
+                "multi_event_dev/type_gate_auc",
+                "all_dev/type_gate_auc",
+                "multi_event_dev/count_mae_positive",
+                "all_dev/count_mae_positive",
+            ):
+                entry = checks[key]
+                self.assertIn("best_baseline", entry)
+                self.assertIn("baseline_relative_threshold", entry)
+                self.assertIn("passed_absolute", entry)
+                self.assertIn("passed_baseline_relative", entry)
+
+    def test_acceptance_gate_fails_when_lexical_dominates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = self._write_toy_dataset(root / "data")
+            run_dir = root / "run"
+
+            args = build_arg_parser().parse_args(
+                [
+                    "--dataset",
+                    "DuEE-Fin-dev500",
+                    "--data-root",
+                    str(data_root),
+                    "--schema",
+                    str(data_root / "schema.json"),
+                    "--run-dir",
+                    str(run_dir),
+                    "--model-path",
+                    "__toy__",
+                    "--max-epochs",
+                    "1",
+                    "--batch-size",
+                    "4",
+                    "--smoke",
+                    "--encoder-feature-mode",
+                    "global_only",
+                ]
+            )
+            report = run_r3_planner_only(args)
+            self.assertFalse(report["accepted"])
+            self.assertEqual(report["encoder_feature_mode"], "global_only")
+
+    def test_train_population_flag_switches_cache_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = self._write_toy_dataset(root / "data")
+            run_dir = root / "run"
+
+            args = build_arg_parser().parse_args(
+                [
+                    "--dataset",
+                    "DuEE-Fin-dev500",
+                    "--data-root",
+                    str(data_root),
+                    "--schema",
+                    str(data_root / "schema.json"),
+                    "--run-dir",
+                    str(run_dir),
+                    "--model-path",
+                    "__toy__",
+                    "--max-epochs",
+                    "1",
+                    "--batch-size",
+                    "4",
+                    "--smoke",
+                    "--train-population",
+                    "multi_event_train",
+                ]
+            )
+            report = run_r3_planner_only(args)
+            self.assertEqual(report["train_population"]["name"], "multi_event_train")
 
     @staticmethod
     def _write_toy_dataset(data_root: Path) -> Path:

@@ -12,30 +12,90 @@ from evaluator.canonical.types import CanonicalEventRecord
 class TypeGate(nn.Module):
     def __init__(self, hidden_size: int, num_event_types: int) -> None:
         super().__init__()
+        self.hidden_size = hidden_size
         self.type_embedding = nn.Embedding(max(num_event_types, 1), hidden_size)
-        self.proj = nn.Linear(hidden_size * 2, 1)
+        self.proj = nn.Linear(hidden_size * 3 + 1, 1)
 
-    def forward(self, global_repr: torch.Tensor, type_id: torch.Tensor) -> torch.Tensor:
-        features = _planner_features(global_repr, type_id, self.type_embedding)
+    def forward(
+        self,
+        global_repr: torch.Tensor,
+        type_id: torch.Tensor,
+        sentence_repr: torch.Tensor | None = None,
+        sentence_mask: torch.Tensor | None = None,
+        lexical_hit: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        features = _planner_features(
+            global_repr,
+            type_id,
+            self.type_embedding,
+            sentence_repr=sentence_repr,
+            sentence_mask=sentence_mask,
+            lexical_hit=lexical_hit,
+        )
         return self.proj(features).squeeze(-1)
 
-    def predict_present(self, global_repr: torch.Tensor, type_id: torch.Tensor, *, threshold: float = 0.5) -> bool:
-        logit = self.forward(global_repr, type_id)
+    def predict_present(
+        self,
+        global_repr: torch.Tensor,
+        type_id: torch.Tensor,
+        *,
+        threshold: float = 0.5,
+        sentence_repr: torch.Tensor | None = None,
+        sentence_mask: torch.Tensor | None = None,
+        lexical_hit: torch.Tensor | None = None,
+    ) -> bool:
+        logit = self.forward(
+            global_repr,
+            type_id,
+            sentence_repr=sentence_repr,
+            sentence_mask=sentence_mask,
+            lexical_hit=lexical_hit,
+        )
         return bool((torch.sigmoid(logit).reshape(-1)[0] >= threshold).item())
 
 
 class CountPlanner(nn.Module):
     def __init__(self, hidden_size: int, num_event_types: int) -> None:
         super().__init__()
+        self.hidden_size = hidden_size
         self.type_embedding = nn.Embedding(max(num_event_types, 1), hidden_size)
-        self.proj = nn.Linear(hidden_size * 2, 1)
+        self.proj = nn.Linear(hidden_size * 3 + 1, 1)
 
-    def forward(self, global_repr: torch.Tensor, type_id: torch.Tensor) -> torch.Tensor:
-        features = _planner_features(global_repr, type_id, self.type_embedding)
+    def forward(
+        self,
+        global_repr: torch.Tensor,
+        type_id: torch.Tensor,
+        sentence_repr: torch.Tensor | None = None,
+        sentence_mask: torch.Tensor | None = None,
+        lexical_hit: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        features = _planner_features(
+            global_repr,
+            type_id,
+            self.type_embedding,
+            sentence_repr=sentence_repr,
+            sentence_mask=sentence_mask,
+            lexical_hit=lexical_hit,
+        )
         return self.proj(features).squeeze(-1)
 
-    def predict_count(self, global_repr: torch.Tensor, type_id: torch.Tensor, *, k_clip: int) -> int:
-        log_lambda = self.forward(global_repr, type_id)
+    def predict_count(
+        self,
+        global_repr: torch.Tensor,
+        type_id: torch.Tensor,
+        *,
+        k_clip: int,
+        sentence_repr: torch.Tensor | None = None,
+        sentence_mask: torch.Tensor | None = None,
+        lexical_hit: torch.Tensor | None = None,
+    ) -> int:
+        log_lambda = self.forward(
+            global_repr,
+            type_id,
+            sentence_repr=sentence_repr,
+            sentence_mask=sentence_mask,
+            lexical_hit=lexical_hit,
+        )
         counts = truncated_poisson_argmax(log_lambda, k_clip=k_clip)
         return int(counts.reshape(-1)[0].item())
 
@@ -47,17 +107,62 @@ class RecordPlanner(nn.Module):
         self.type_gate = TypeGate(hidden_size, num_event_types)
         self.count_planner = CountPlanner(hidden_size, num_event_types)
 
-    def forward(self, global_repr: torch.Tensor, type_id: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        global_repr: torch.Tensor,
+        type_id: torch.Tensor,
+        sentence_repr: torch.Tensor | None = None,
+        sentence_mask: torch.Tensor | None = None,
+        lexical_hit: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
         return {
-            "presence_logit": self.presence_logit(global_repr, type_id),
-            "log_lambda": self.count_log_lambda(global_repr, type_id),
+            "presence_logit": self.presence_logit(
+                global_repr,
+                type_id,
+                sentence_repr=sentence_repr,
+                sentence_mask=sentence_mask,
+                lexical_hit=lexical_hit,
+            ),
+            "log_lambda": self.count_log_lambda(
+                global_repr,
+                type_id,
+                sentence_repr=sentence_repr,
+                sentence_mask=sentence_mask,
+                lexical_hit=lexical_hit,
+            ),
         }
 
-    def presence_logit(self, global_repr: torch.Tensor, type_id: torch.Tensor) -> torch.Tensor:
-        return self.type_gate(global_repr, type_id)
+    def presence_logit(
+        self,
+        global_repr: torch.Tensor,
+        type_id: torch.Tensor,
+        sentence_repr: torch.Tensor | None = None,
+        sentence_mask: torch.Tensor | None = None,
+        lexical_hit: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        return self.type_gate(
+            global_repr,
+            type_id,
+            sentence_repr=sentence_repr,
+            sentence_mask=sentence_mask,
+            lexical_hit=lexical_hit,
+        )
 
-    def count_log_lambda(self, global_repr: torch.Tensor, type_id: torch.Tensor) -> torch.Tensor:
-        return self.count_planner(global_repr, type_id)
+    def count_log_lambda(
+        self,
+        global_repr: torch.Tensor,
+        type_id: torch.Tensor,
+        sentence_repr: torch.Tensor | None = None,
+        sentence_mask: torch.Tensor | None = None,
+        lexical_hit: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        return self.count_planner(
+            global_repr,
+            type_id,
+            sentence_repr=sentence_repr,
+            sentence_mask=sentence_mask,
+            lexical_hit=lexical_hit,
+        )
 
     def predict_n_t(
         self,
@@ -66,10 +171,27 @@ class RecordPlanner(nn.Module):
         *,
         threshold: float = 0.5,
         k_clip: int | None = None,
+        sentence_repr: torch.Tensor | None = None,
+        sentence_mask: torch.Tensor | None = None,
+        lexical_hit: torch.Tensor | None = None,
     ) -> int:
-        if not self.type_gate.predict_present(global_repr, type_id, threshold=threshold):
+        if not self.type_gate.predict_present(
+            global_repr,
+            type_id,
+            threshold=threshold,
+            sentence_repr=sentence_repr,
+            sentence_mask=sentence_mask,
+            lexical_hit=lexical_hit,
+        ):
             return 0
-        return self.count_planner.predict_count(global_repr, type_id, k_clip=k_clip or self.k_max)
+        return self.count_planner.predict_count(
+            global_repr,
+            type_id,
+            k_clip=k_clip or self.k_max,
+            sentence_repr=sentence_repr,
+            sentence_mask=sentence_mask,
+            lexical_hit=lexical_hit,
+        )
 
     @staticmethod
     def gold_n_t(records: list[CanonicalEventRecord], event_type: str) -> int:
@@ -126,6 +248,10 @@ def _planner_features(
     global_repr: torch.Tensor,
     type_id: torch.Tensor,
     type_embedding: nn.Embedding,
+    *,
+    sentence_repr: torch.Tensor | None = None,
+    sentence_mask: torch.Tensor | None = None,
+    lexical_hit: torch.Tensor | None = None,
 ) -> torch.Tensor:
     device = type_embedding.weight.device
     if type_id.dim() == 0:
@@ -141,7 +267,70 @@ def _planner_features(
     if global_repr.shape[0] != type_id.shape[0]:
         raise ValueError("global_repr and type_id batch sizes must match")
     type_emb = type_embedding(type_id)
-    return torch.cat([global_repr, type_emb], dim=-1)
+    batch_size = global_repr.shape[0]
+    hidden_size = int(type_embedding.embedding_dim)
+    dtype = global_repr.dtype
+
+    if sentence_repr is None:
+        evidence_vec = torch.zeros((batch_size, hidden_size), dtype=dtype, device=device)
+    else:
+        evidence_vec = _evidence_attention(
+            type_emb,
+            sentence_repr,
+            sentence_mask,
+            hidden_size=hidden_size,
+            batch_size=batch_size,
+            device=device,
+            dtype=dtype,
+        )
+
+    if lexical_hit is None:
+        lex = torch.zeros((batch_size, 1), dtype=dtype, device=device)
+    else:
+        lex = lexical_hit.to(device=device, dtype=dtype).reshape(-1, 1)
+        if lex.shape[0] == 1 and batch_size > 1:
+            lex = lex.expand(batch_size, -1)
+        elif lex.shape[0] != batch_size:
+            raise ValueError("lexical_hit batch size mismatch")
+
+    return torch.cat([global_repr, type_emb, evidence_vec, lex], dim=-1)
+
+
+def _evidence_attention(
+    type_emb: torch.Tensor,
+    sentence_repr: torch.Tensor,
+    sentence_mask: torch.Tensor | None,
+    *,
+    hidden_size: int,
+    batch_size: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    sentence_repr = sentence_repr.to(device=device, dtype=dtype)
+    if sentence_repr.dim() == 2:
+        sentence_repr = sentence_repr.unsqueeze(0)
+    if sentence_repr.shape[0] == 1 and batch_size > 1:
+        sentence_repr = sentence_repr.expand(batch_size, -1, -1)
+    if sentence_repr.shape[0] != batch_size:
+        raise ValueError("sentence_repr batch size mismatch")
+    if sentence_repr.shape[1] == 0:
+        return torch.zeros((batch_size, hidden_size), dtype=dtype, device=device)
+    if sentence_mask is None:
+        mask = torch.ones(sentence_repr.shape[:2], dtype=torch.bool, device=device)
+    else:
+        mask = sentence_mask.to(device=device)
+        if mask.dim() == 1:
+            mask = mask.unsqueeze(0)
+        if mask.shape[0] == 1 and batch_size > 1:
+            mask = mask.expand(batch_size, -1)
+        mask = mask.bool()
+    scale = math.sqrt(max(hidden_size, 1))
+    logits = torch.einsum("bh,bnh->bn", type_emb, sentence_repr) / scale
+    any_valid = mask.any(dim=-1, keepdim=True)
+    safe_logits = logits.masked_fill(~mask, -1e9)
+    weights = torch.softmax(safe_logits, dim=-1)
+    weights = torch.where(any_valid, weights, torch.zeros_like(weights))
+    return torch.einsum("bn,bnh->bh", weights, sentence_repr)
 
 
 def _log1mexp_neg(lambda_: torch.Tensor) -> torch.Tensor:

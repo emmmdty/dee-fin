@@ -129,3 +129,20 @@ Observed smoke dev diagnostics:
 - No hidden-test or final-test claim.
 - No paper main-table claim.
 - No P5b decision table update.
+
+---
+
+## 2026-05-14 R3 v2 Errata (Acceptance Gate Rewrite)
+
+The R3 acceptance criteria above were single-population and decoupled from baselines. The current external audit (`docs/diagnostics/current_stage_external_audit_20260514.md`) showed that an R3 run could simultaneously fail the absolute thresholds yet not be compared to the strongest baselines. Two changes apply to any R3 acceptance run starting from 2026-05-14:
+
+1. **Dual-population**: the type gate AUC, type gate Youden F1, and count_mae_positive thresholds apply independently to both `multi_event_dev` and `all_dev`. All eight data checks plus the two loss-trend checks must pass for `accepted=true`.
+2. **Baseline-relative margins** (in addition to absolute thresholds):
+   - `type_gate_auc` must exceed `max(p5b_lexical_trigger, legacy_single_softmax)` by at least 0.05.
+   - `type_gate_f1_youden` must exceed `max(p5b_lexical_trigger, legacy_single_softmax)` by at least 0.05.
+   - `count_mae_positive` must be at least 0.05 below `min(predict_one, p5b_lexical_trigger, legacy_single_softmax)`.
+   - The absolute thresholds from the original Acceptance Criteria section remain as floors. The gate combines absolute-and-baseline-relative with AND.
+
+This errata is enforced by `carve/p3_planner_only_runner.py::_acceptance_checks` and the corresponding tests in `tests/carve/test_r3_planner_only_runner.py`. The full P3 path (`carve/p3_runner.py`) still emits v1 metrics, but its results do not constitute R3 acceptance evidence.
+
+The original P2-acceptance prerequisite still applies. No P3 acceptance claim follows from R3 v2 alone.

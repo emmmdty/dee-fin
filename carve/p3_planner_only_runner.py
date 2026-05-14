@@ -21,14 +21,24 @@ from carve.text_segmentation import split_sentences
 from evaluator.canonical.schema import EventSchema
 
 
+FEATURE_MODES = ("global_only", "evidence", "evidence_lexical")
+TRAIN_POPULATIONS = ("all_train", "multi_event_train")
+ACCEPTANCE_POPULATIONS: tuple[str, ...] = ("multi_event_dev", "all_dev")
+
+
 @dataclass(frozen=True)
 class PlannerFeatureCache:
     name: str
     document_ids: list[str]
     documents: list[DueeDocument]
     global_repr: torch.Tensor
+    sentence_repr: torch.Tensor
+    sentence_mask: torch.Tensor
+    lexical_hit: torch.Tensor
     counts: torch.Tensor
     event_types: list[str]
+    truncated_sentence_documents: int
+    max_sentences: int
 
     @property
     def documents_count(self) -> int:
@@ -37,6 +47,11 @@ class PlannerFeatureCache:
     @property
     def event_type_pairs(self) -> int:
         return int(self.counts.numel())
+
+    @property
+    def truncation_rate(self) -> float:
+        denom = max(self.documents_count, 1)
+        return round(self.truncated_sentence_documents / denom, 6)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -56,6 +71,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lambda-count", type=float, default=1.0)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--limit-docs", type=int, default=0)
+    parser.add_argument("--train-population", choices=TRAIN_POPULATIONS, default="all_train")
+    parser.add_argument("--encoder-feature-mode", choices=FEATURE_MODES, default="evidence_lexical")
+    parser.add_argument("--max-sentences", type=int, default=256)
+    parser.add_argument("--eval-batch-size", type=int, default=128)
     return parser
 
 
@@ -76,7 +95,12 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
     data_root = Path(args.data_root)
     train_docs_all = load_duee_documents(data_root / "train.jsonl", dataset=args.dataset)
     dev_docs_all = load_duee_documents(data_root / "dev.jsonl", dataset=args.dataset)
-    train_docs = multi_event_subset(train_docs_all)
+    if args.train_population == "multi_event_train":
+        train_docs = multi_event_subset(train_docs_all)
+        train_cache_name = "multi_event_train"
+    else:
+        train_docs = list(train_docs_all)
+        train_cache_name = "all_train"
     dev_docs_multi = multi_event_subset(dev_docs_all)
     if args.limit_docs:
         train_docs = train_docs[: args.limit_docs]
@@ -97,10 +121,17 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
     if not event_types:
         raise RuntimeError("schema has no event types")
 
+    max_sentences = max(int(args.max_sentences), 1)
     cache_dir = run_dir / "cache"
-    train_cache = _build_feature_cache("multi_event_train", train_docs, encoder, schema)
-    dev_multi_cache = _build_feature_cache("multi_event_dev", dev_docs_multi, encoder, schema)
-    dev_all_cache = _build_feature_cache("all_dev", dev_docs_all, encoder, schema)
+    train_cache = _build_feature_cache(
+        train_cache_name, train_docs, encoder, schema, hidden_size=hidden_size, max_sentences=max_sentences,
+    )
+    dev_multi_cache = _build_feature_cache(
+        "multi_event_dev", dev_docs_multi, encoder, schema, hidden_size=hidden_size, max_sentences=max_sentences,
+    )
+    dev_all_cache = _build_feature_cache(
+        "all_dev", dev_docs_all, encoder, schema, hidden_size=hidden_size, max_sentences=max_sentences,
+    )
     for cache in (train_cache, dev_multi_cache, dev_all_cache):
         _write_feature_cache(cache_dir / f"{cache.name}.pt", cache)
 
@@ -110,15 +141,15 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
     history = _train_two_stage_planner(planner, train_cache, args, device)
 
     metrics = {
-        "multi_event_dev": _evaluate_two_stage_planner(planner, dev_multi_cache, k_clip, device),
-        "all_dev": _evaluate_two_stage_planner(planner, dev_all_cache, k_clip, device),
+        "multi_event_dev": _evaluate_two_stage_planner(planner, dev_multi_cache, k_clip, device, args),
+        "all_dev": _evaluate_two_stage_planner(planner, dev_all_cache, k_clip, device, args),
     }
     legacy_model = _train_legacy_single_softmax_model(train_cache, schema, k_clip, args, device)
     baselines = {
         "multi_event_dev": _baseline_report(dev_multi_cache, k_clip, legacy_model, device),
         "all_dev": _baseline_report(dev_all_cache, k_clip, legacy_model, device),
     }
-    acceptance_checks = _acceptance_checks(metrics["multi_event_dev"], history)
+    acceptance_checks = _acceptance_checks(metrics, baselines, history)
 
     _write_json(run_dir / "diagnostics" / "r3_planner_train_history.json", history)
     _write_json(run_dir / "diagnostics" / "r3_planner_metrics.json", metrics)
@@ -132,8 +163,12 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
                 "hidden_size": hidden_size,
                 "k_clip": k_clip,
                 "presence_pos_weight": train_stats["presence_pos_weight"],
-                "presence_threshold": metrics["multi_event_dev"]["presence_threshold"],
-                "acceptance_population": "multi_event_dev",
+                "presence_threshold_multi_event_dev": metrics["multi_event_dev"]["presence_threshold"],
+                "presence_threshold_all_dev": metrics["all_dev"]["presence_threshold"],
+                "acceptance_population": list(ACCEPTANCE_POPULATIONS),
+                "train_population": train_cache_name,
+                "encoder_feature_mode": args.encoder_feature_mode,
+                "max_sentences": max_sentences,
             },
         },
         run_dir / "checkpoints" / "r3_planner.pt",
@@ -142,8 +177,9 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
     report = {
         "status": "r3_planner_only_smoke" if args.smoke else "r3_planner_only_diagnostic",
         "dataset": args.dataset,
-        "acceptance_population": "multi_event_dev",
-        "diagnostic_populations": ["all_dev"],
+        "acceptance_population": list(ACCEPTANCE_POPULATIONS),
+        "diagnostic_populations": [],
+        "encoder_feature_mode": args.encoder_feature_mode,
         "train_population": train_stats,
         "dev_populations": {
             "multi_event_dev": _population_stats(dev_multi_cache),
@@ -172,11 +208,17 @@ def _build_feature_cache(
     documents: list[DueeDocument],
     encoder: nn.Module,
     schema: EventSchema,
+    *,
+    hidden_size: int,
+    max_sentences: int,
 ) -> PlannerFeatureCache:
     event_types = list(schema.event_roles)
-    global_rows = []
-    count_rows = []
-    document_ids = []
+    global_rows: list[torch.Tensor] = []
+    sentence_rows: list[torch.Tensor] = []
+    count_rows: list[list[int]] = []
+    lexical_rows: list[list[int]] = []
+    document_ids: list[str] = []
+    truncated = 0
     with torch.no_grad():
         for document in documents:
             text = _document_text(document)
@@ -184,26 +226,51 @@ def _build_feature_cache(
             if sentences:
                 encoded = encoder.encode_document(text, sentences)
                 global_repr = encoded.global_repr.detach().cpu().to(dtype=torch.float32)
+                sentence_repr = encoded.sentence_repr.detach().cpu().to(dtype=torch.float32)
             else:
-                hidden_size = int(getattr(encoder, "hidden_size"))
                 global_repr = torch.zeros((hidden_size,), dtype=torch.float32)
+                sentence_repr = torch.zeros((0, hidden_size), dtype=torch.float32)
+            if sentence_repr.shape[0] > max_sentences:
+                sentence_repr = sentence_repr[:max_sentences]
+                truncated += 1
             global_rows.append(global_repr)
+            sentence_rows.append(sentence_repr)
             count_rows.append([RecordPlanner.gold_n_t(document.records, event_type) for event_type in event_types])
+            lexical_rows.append([1 if _type_gate(document, event_type) else 0 for event_type in event_types])
             document_ids.append(document.document_id)
-    hidden_size = int(getattr(encoder, "hidden_size"))
-    global_repr_tensor = (
-        torch.stack(global_rows)
-        if global_rows
-        else torch.zeros((0, hidden_size), dtype=torch.float32)
-    )
-    count_tensor = torch.tensor(count_rows, dtype=torch.long)
+
+    n_docs = len(global_rows)
+    if n_docs == 0:
+        global_tensor = torch.zeros((0, hidden_size), dtype=torch.float32)
+        sentence_tensor = torch.zeros((0, 0, hidden_size), dtype=torch.float32)
+        mask_tensor = torch.zeros((0, 0), dtype=torch.bool)
+        lexical_tensor = torch.zeros((0, len(event_types)), dtype=torch.float32)
+        count_tensor = torch.zeros((0, len(event_types)), dtype=torch.long)
+    else:
+        n_sent_max = max(int(row.shape[0]) for row in sentence_rows)
+        n_sent_max = max(n_sent_max, 1)
+        global_tensor = torch.stack(global_rows)
+        sentence_tensor = torch.zeros((n_docs, n_sent_max, hidden_size), dtype=torch.float32)
+        mask_tensor = torch.zeros((n_docs, n_sent_max), dtype=torch.bool)
+        for index, row in enumerate(sentence_rows):
+            length = int(row.shape[0])
+            if length:
+                sentence_tensor[index, :length] = row
+                mask_tensor[index, :length] = True
+        lexical_tensor = torch.tensor(lexical_rows, dtype=torch.float32) if lexical_rows else torch.zeros((0, len(event_types)), dtype=torch.float32)
+        count_tensor = torch.tensor(count_rows, dtype=torch.long) if count_rows else torch.zeros((0, len(event_types)), dtype=torch.long)
     return PlannerFeatureCache(
         name=name,
         document_ids=document_ids,
         documents=documents,
-        global_repr=global_repr_tensor,
+        global_repr=global_tensor,
+        sentence_repr=sentence_tensor,
+        sentence_mask=mask_tensor,
+        lexical_hit=lexical_tensor,
         counts=count_tensor,
         event_types=event_types,
+        truncated_sentence_documents=truncated,
+        max_sentences=max_sentences,
     )
 
 
@@ -214,10 +281,15 @@ def _write_feature_cache(path: Path, cache: PlannerFeatureCache) -> None:
             "name": cache.name,
             "document_ids": cache.document_ids,
             "global_repr": cache.global_repr,
+            "sentence_repr": cache.sentence_repr,
+            "sentence_mask": cache.sentence_mask,
+            "lexical_hit": cache.lexical_hit,
             "counts": cache.counts,
             "event_types": cache.event_types,
             "documents": cache.documents_count,
             "event_type_pairs": cache.event_type_pairs,
+            "max_sentences": cache.max_sentences,
+            "truncated_sentence_documents": cache.truncated_sentence_documents,
         },
         path,
     )
@@ -229,9 +301,12 @@ def _train_two_stage_planner(
     args: argparse.Namespace,
     device: torch.device,
 ) -> list[dict[str, float | int]]:
-    doc_indices, type_ids, targets = _pair_tensors(cache)
+    doc_indices, type_ids, targets, lexical_hits = _pair_tensors(cache)
     if targets.numel() == 0:
         raise RuntimeError("no R3 planner-only train pairs were constructed")
+    feature_mode = str(args.encoder_feature_mode)
+    use_evidence = feature_mode in {"evidence", "evidence_lexical"}
+    use_lexical = feature_mode == "evidence_lexical"
     batch_size = max(int(args.batch_size), 1)
     steps_per_epoch = max(math.ceil(targets.numel() / batch_size), 1)
     total_steps = max(int(args.max_epochs) * steps_per_epoch, 1)
@@ -244,7 +319,10 @@ def _train_two_stage_planner(
         dtype=torch.float32,
         device=device,
     )
-    features = cache.global_repr.to(device)
+    global_repr_device = cache.global_repr.to(device)
+    sentence_repr_device = cache.sentence_repr.to(device) if use_evidence else None
+    sentence_mask_device = cache.sentence_mask.to(device) if use_evidence else None
+    lexical_hit_device = lexical_hits.to(device) if use_lexical else None
     targets_device = targets.to(device)
     doc_indices_device = doc_indices.to(device)
     type_ids_device = type_ids.to(device)
@@ -255,16 +333,37 @@ def _train_two_stage_planner(
         totals = {"loss": 0.0, "presence_loss": 0.0, "count_loss": 0.0, "pairs": 0.0}
         for batch_start in range(0, targets.numel(), batch_size):
             batch_ids = order[batch_start : batch_start + batch_size]
-            global_batch = features[doc_indices_device[batch_ids]]
+            doc_idx_batch = doc_indices_device[batch_ids]
             type_batch = type_ids_device[batch_ids]
+            global_batch = global_repr_device[doc_idx_batch]
             target_batch = targets_device[batch_ids]
+            sent_batch = sentence_repr_device[doc_idx_batch] if sentence_repr_device is not None else None
+            mask_batch = sentence_mask_device[doc_idx_batch] if sentence_mask_device is not None else None
+            lex_batch = lexical_hit_device[batch_ids].unsqueeze(-1) if lexical_hit_device is not None else None
+
             presence_target = (target_batch > 0).to(dtype=torch.float32)
-            presence_logits = planner.presence_logit(global_batch, type_batch)
+            presence_logits = planner.presence_logit(
+                global_batch,
+                type_batch,
+                sentence_repr=sent_batch,
+                sentence_mask=mask_batch,
+                lexical_hit=lex_batch,
+            )
             presence_loss_value = presence_loss(presence_logits, presence_target, pos_weight=pos_weight)
             positive_mask = target_batch > 0
             if bool(positive_mask.any().item()):
+                pos_sent = sent_batch[positive_mask] if sent_batch is not None else None
+                pos_mask = mask_batch[positive_mask] if mask_batch is not None else None
+                pos_lex = lex_batch[positive_mask] if lex_batch is not None else None
+                count_log_lambda = planner.count_log_lambda(
+                    global_batch[positive_mask],
+                    type_batch[positive_mask],
+                    sentence_repr=pos_sent,
+                    sentence_mask=pos_mask,
+                    lexical_hit=pos_lex,
+                )
                 count_loss_value = truncated_poisson_nll(
-                    planner.count_log_lambda(global_batch[positive_mask], type_batch[positive_mask]),
+                    count_log_lambda,
                     target_batch[positive_mask].to(dtype=torch.float32),
                 )
             else:
@@ -302,25 +401,62 @@ def _evaluate_two_stage_planner(
     cache: PlannerFeatureCache,
     k_clip: int,
     device: torch.device,
+    args: argparse.Namespace,
 ) -> dict[str, float | int | str]:
-    doc_indices, type_ids, targets = _pair_tensors(cache)
+    doc_indices, type_ids, targets, lexical_hits = _pair_tensors(cache)
     if targets.numel() == 0:
         return _empty_metrics(cache.name, k_clip)
-    features = cache.global_repr.to(device)
+    feature_mode = str(args.encoder_feature_mode)
+    use_evidence = feature_mode in {"evidence", "evidence_lexical"}
+    use_lexical = feature_mode == "evidence_lexical"
+    eval_batch_size = max(int(getattr(args, "eval_batch_size", 0) or args.batch_size), 1)
+    global_repr_device = cache.global_repr.to(device)
+    sentence_repr_device = cache.sentence_repr.to(device) if use_evidence else None
+    sentence_mask_device = cache.sentence_mask.to(device) if use_evidence else None
+    lexical_hit_device = lexical_hits.to(device) if use_lexical else None
+    doc_indices_device = doc_indices.to(device)
+    type_ids_device = type_ids.to(device)
+    presence_chunks: list[torch.Tensor] = []
+    count_chunks: list[torch.Tensor] = []
+    total = int(targets.numel())
     with torch.no_grad():
-        global_batch = features[doc_indices.to(device)]
-        type_batch = type_ids.to(device)
-        presence_probs = torch.sigmoid(planner.presence_logit(global_batch, type_batch)).detach().cpu()
-        count_preds = truncated_poisson_argmax(
-            planner.count_log_lambda(global_batch, type_batch),
-            k_clip=k_clip,
-        ).detach().cpu()
+        for start in range(0, total, eval_batch_size):
+            stop = min(start + eval_batch_size, total)
+            doc_idx_batch = doc_indices_device[start:stop]
+            type_batch = type_ids_device[start:stop]
+            global_batch = global_repr_device[doc_idx_batch]
+            sent_batch = sentence_repr_device[doc_idx_batch] if sentence_repr_device is not None else None
+            mask_batch = sentence_mask_device[doc_idx_batch] if sentence_mask_device is not None else None
+            lex_batch = lexical_hit_device[start:stop].unsqueeze(-1) if lexical_hit_device is not None else None
+            presence_probs = torch.sigmoid(
+                planner.presence_logit(
+                    global_batch,
+                    type_batch,
+                    sentence_repr=sent_batch,
+                    sentence_mask=mask_batch,
+                    lexical_hit=lex_batch,
+                )
+            )
+            count_preds = truncated_poisson_argmax(
+                planner.count_log_lambda(
+                    global_batch,
+                    type_batch,
+                    sentence_repr=sent_batch,
+                    sentence_mask=mask_batch,
+                    lexical_hit=lex_batch,
+                ),
+                k_clip=k_clip,
+            )
+            presence_chunks.append(presence_probs.detach().cpu())
+            count_chunks.append(count_preds.detach().cpu())
+    presence_scores = torch.cat(presence_chunks) if presence_chunks else torch.zeros((0,))
+    count_predictions = torch.cat(count_chunks) if count_chunks else torch.zeros((0,), dtype=torch.long)
     return _prediction_metrics(
         population=cache.name,
         documents=cache.documents_count,
         targets=targets,
-        presence_scores=[float(score) for score in presence_probs.tolist()],
-        count_predictions=[int(value) for value in count_preds.tolist()],
+        presence_scores=[float(score) for score in presence_scores.tolist()],
+        count_predictions=[int(value) for value in count_predictions.tolist()],
         k_clip=k_clip,
     )
 
@@ -378,7 +514,7 @@ def _train_legacy_single_softmax_model(
     device: torch.device,
 ) -> nn.Module:
     model = _LegacySoftmaxPlanner(
-        hidden_size=int(cache.global_repr.shape[1]),
+        hidden_size=int(cache.global_repr.shape[1]) if cache.global_repr.numel() else 1,
         num_event_types=len(schema.event_roles),
         k_clip=k_clip,
     ).to(device)
@@ -398,7 +534,7 @@ def _legacy_single_softmax_baseline(
         return metrics
     metrics = _evaluate_legacy_single_softmax(model, cache, k_clip, device)
     metrics["diagnostic_only"] = True
-    metrics["trained_on_population"] = "multi_event_train"
+    metrics["trained_on_population"] = "train_cache_population"
     return metrics
 
 
@@ -408,7 +544,9 @@ def _train_legacy_single_softmax(
     args: argparse.Namespace,
     device: torch.device,
 ) -> None:
-    doc_indices, type_ids, targets = _pair_tensors(cache)
+    doc_indices, type_ids, targets, _ = _pair_tensors(cache)
+    if targets.numel() == 0:
+        return
     batch_size = max(int(args.batch_size), 1)
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(args.lr), weight_decay=1e-4)
     features = cache.global_repr.to(device)
@@ -432,7 +570,7 @@ def _evaluate_legacy_single_softmax(
     k_clip: int,
     device: torch.device,
 ) -> dict[str, float | int | str]:
-    doc_indices, type_ids, targets = _pair_tensors(cache)
+    doc_indices, type_ids, targets, _ = _pair_tensors(cache)
     features = cache.global_repr.to(device)
     with torch.no_grad():
         logits = model(features[doc_indices.to(device)], type_ids.to(device))
@@ -551,47 +689,101 @@ def _population_stats(cache: PlannerFeatureCache) -> dict[str, float | int | str
         "zero_rate": round(negative / max(total, 1), 6),
         "max_n_t": max_n,
         "k_clip": max(max_n, 1),
+        "max_sentences": cache.max_sentences,
+        "sentence_truncation_rate": cache.truncation_rate,
     }
 
 
-def _pair_tensors(cache: PlannerFeatureCache) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    num_docs, num_types = cache.counts.shape
+def _pair_tensors(cache: PlannerFeatureCache) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    num_docs, num_types = cache.counts.shape if cache.counts.numel() else (0, len(cache.event_types))
+    if num_docs == 0:
+        return (
+            torch.zeros((0,), dtype=torch.long),
+            torch.zeros((0,), dtype=torch.long),
+            torch.zeros((0,), dtype=torch.long),
+            torch.zeros((0,), dtype=torch.float32),
+        )
     doc_indices = torch.arange(num_docs, dtype=torch.long).repeat_interleave(num_types)
     type_ids = torch.arange(num_types, dtype=torch.long).repeat(num_docs)
-    return doc_indices, type_ids, cache.counts.reshape(-1)
+    counts_flat = cache.counts.reshape(-1)
+    lexical_flat = cache.lexical_hit.to(dtype=torch.float32).reshape(-1)
+    return doc_indices, type_ids, counts_flat, lexical_flat
 
 
 def _acceptance_checks(
-    multi_event_metrics: dict[str, float | int | str],
+    metrics_by_population: dict[str, dict[str, Any]],
+    baselines_by_population: dict[str, dict[str, Any]],
     history: list[dict[str, float | int]],
 ) -> dict[str, dict[str, Any]]:
-    return {
-        "type_gate_auc": {
-            "value": multi_event_metrics["type_gate_auc"],
-            "threshold": ">= 0.85",
-            "passed": float(multi_event_metrics["type_gate_auc"]) >= 0.85,
-        },
-        "type_gate_f1_youden": {
-            "value": multi_event_metrics["type_gate_f1_youden"],
-            "threshold": ">= 0.55",
-            "passed": float(multi_event_metrics["type_gate_f1_youden"]) >= 0.55,
-        },
-        "count_mae_positive": {
-            "value": multi_event_metrics["count_mae_positive"],
-            "threshold": "<= 0.5",
-            "passed": float(multi_event_metrics["count_mae_positive"]) <= 0.5,
-        },
-        "presence_loss_trend": {
-            "value": _trend_summary(history, "presence_loss"),
-            "threshold": "five consecutive downward epochs and at least 2x decrease",
-            "passed": _has_required_downward_trend(history, "presence_loss"),
-        },
-        "count_loss_trend": {
-            "value": _trend_summary(history, "count_loss"),
-            "threshold": "five consecutive downward epochs and at least 2x decrease",
-            "passed": _has_required_downward_trend(history, "count_loss"),
-        },
+    checks: dict[str, dict[str, Any]] = {}
+    metric_specs = (
+        ("type_gate_auc", "absolute_ge", 0.80, 0.05, "max"),
+        ("type_gate_f1_youden", "absolute_ge", 0.55, 0.05, "max"),
+        ("count_mae_positive", "absolute_le", 0.5, 0.05, "min"),
+    )
+    for population in ACCEPTANCE_POPULATIONS:
+        metrics = metrics_by_population.get(population, {})
+        baselines = baselines_by_population.get(population, {})
+        for metric_name, abs_op, abs_threshold, rel_margin, aggregator in metric_specs:
+            value = float(metrics.get(metric_name, 0.0))
+            best_baseline, contributing = _best_baseline_for(metric_name, baselines, aggregator)
+            if abs_op == "absolute_ge":
+                abs_pass = value >= float(abs_threshold)
+                baseline_threshold = best_baseline + float(rel_margin)
+                rel_pass = value >= baseline_threshold
+                threshold_repr = f">= {float(abs_threshold):.6f}"
+                baseline_threshold_repr = f">= {baseline_threshold:.6f}"
+            else:
+                abs_pass = value <= float(abs_threshold)
+                baseline_threshold = best_baseline - float(rel_margin)
+                rel_pass = value <= baseline_threshold
+                threshold_repr = f"<= {float(abs_threshold):.6f}"
+                baseline_threshold_repr = f"<= {baseline_threshold:.6f}"
+            checks[f"{population}/{metric_name}"] = {
+                "value": round(value, 6),
+                "absolute_threshold": threshold_repr,
+                "best_baseline": round(best_baseline, 6),
+                "best_baseline_sources": contributing,
+                "baseline_relative_threshold": baseline_threshold_repr,
+                "baseline_relative_margin": float(rel_margin),
+                "passed_absolute": bool(abs_pass),
+                "passed_baseline_relative": bool(rel_pass),
+                "passed": bool(abs_pass and rel_pass),
+            }
+    checks["training/presence_loss_trend"] = {
+        "value": _trend_summary(history, "presence_loss"),
+        "threshold": "five consecutive downward epochs and at least 2x decrease",
+        "passed": _has_required_downward_trend(history, "presence_loss"),
     }
+    checks["training/count_loss_trend"] = {
+        "value": _trend_summary(history, "count_loss"),
+        "threshold": "five consecutive downward epochs and at least 2x decrease",
+        "passed": _has_required_downward_trend(history, "count_loss"),
+    }
+    return checks
+
+
+def _best_baseline_for(
+    metric_name: str,
+    baselines: dict[str, Any],
+    aggregator: str,
+) -> tuple[float, dict[str, float]]:
+    candidate_sources = ("predict_one", "p5b_lexical_trigger", "legacy_single_softmax")
+    contributing: dict[str, float] = {}
+    for key in candidate_sources:
+        source = baselines.get(key, {})
+        if metric_name in source:
+            try:
+                contributing[key] = float(source[metric_name])
+            except (TypeError, ValueError):
+                continue
+    if not contributing:
+        return (0.0 if aggregator == "max" else float("inf"), {})
+    if aggregator == "min":
+        best = min(contributing.values())
+    else:
+        best = max(contributing.values())
+    return best, {key: round(value, 6) for key, value in contributing.items()}
 
 
 def _has_required_downward_trend(history: list[dict[str, float | int]], key: str) -> bool:

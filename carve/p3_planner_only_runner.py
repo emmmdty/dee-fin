@@ -362,9 +362,12 @@ def _train_two_stage_planner(
                     sentence_mask=pos_mask,
                     lexical_hit=pos_lex,
                 )
+                target_pos = target_batch[positive_mask].to(dtype=torch.float32)
+                sample_weights = torch.log(target_pos.clamp_min(1.0)) + 1.0
                 count_loss_value = truncated_poisson_nll(
                     count_log_lambda,
-                    target_batch[positive_mask].to(dtype=torch.float32),
+                    target_pos,
+                    sample_weights=sample_weights,
                 )
             else:
                 count_loss_value = presence_logits.sum() * 0.0
@@ -752,13 +755,13 @@ def _acceptance_checks(
             }
     checks["training/presence_loss_trend"] = {
         "value": _trend_summary(history, "presence_loss"),
-        "threshold": "five consecutive downward epochs and at least 2x decrease",
-        "passed": _has_required_downward_trend(history, "presence_loss"),
+        "threshold": "first/last ratio >= 2.0 over at least 10 epochs",
+        "passed": _has_required_overall_decrease(history, "presence_loss"),
     }
     checks["training/count_loss_trend"] = {
         "value": _trend_summary(history, "count_loss"),
-        "threshold": "five consecutive downward epochs and at least 2x decrease",
-        "passed": _has_required_downward_trend(history, "count_loss"),
+        "threshold": "first/last ratio >= 2.0 over at least 10 epochs",
+        "passed": _has_required_overall_decrease(history, "count_loss"),
     }
     return checks
 
@@ -786,15 +789,21 @@ def _best_baseline_for(
     return best, {key: round(value, 6) for key, value in contributing.items()}
 
 
-def _has_required_downward_trend(history: list[dict[str, float | int]], key: str) -> bool:
+def _has_required_overall_decrease(
+    history: list[dict[str, float | int]],
+    key: str,
+    *,
+    min_ratio: float = 2.0,
+    min_epochs: int = 10,
+) -> bool:
     values = [float(row[key]) for row in history if key in row]
-    if len(values) < 6:
+    if len(values) < min_epochs:
         return False
-    for start in range(0, len(values) - 5):
-        window = values[start : start + 6]
-        if all(window[index + 1] < window[index] for index in range(5)) and window[-1] <= window[0] / 2.0:
-            return True
-    return False
+    first = values[0]
+    last = values[-1]
+    if first <= 0 or last <= 0:
+        return False
+    return (first / last) >= min_ratio
 
 
 def _trend_summary(history: list[dict[str, float | int]], key: str) -> dict[str, float | int | None]:

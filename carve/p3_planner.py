@@ -60,6 +60,7 @@ class CountPlanner(nn.Module):
         self.hidden_size = hidden_size
         self.type_embedding = nn.Embedding(max(num_event_types, 1), hidden_size)
         self.proj = nn.Linear(hidden_size * 3 + 1, 1)
+        nn.init.zeros_(self.proj.bias)
 
     def forward(
         self,
@@ -212,7 +213,12 @@ def presence_loss(logits: torch.Tensor, targets: torch.Tensor, *, pos_weight: to
     )
 
 
-def truncated_poisson_nll(log_lambda: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+def truncated_poisson_nll(
+    log_lambda: torch.Tensor,
+    targets: torch.Tensor,
+    *,
+    sample_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
     targets = targets.to(device=log_lambda.device, dtype=log_lambda.dtype)
     if targets.numel() == 0:
         return log_lambda.sum() * 0.0
@@ -222,7 +228,10 @@ def truncated_poisson_nll(log_lambda: torch.Tensor, targets: torch.Tensor) -> to
     lambda_ = torch.exp(log_lambda).clamp_min(torch.finfo(log_lambda.dtype).tiny)
     log_nonzero_prob = _log1mexp_neg(lambda_)
     nll = lambda_ - targets * log_lambda + torch.lgamma(targets + 1.0) + log_nonzero_prob
-    return nll.mean()
+    if sample_weights is None:
+        return nll.mean()
+    weights = sample_weights.to(device=nll.device, dtype=nll.dtype).reshape_as(nll)
+    return (nll * weights).sum() / weights.sum().clamp_min(1e-8)
 
 
 def truncated_poisson_argmax(log_lambda: torch.Tensor, *, k_clip: int) -> torch.Tensor:

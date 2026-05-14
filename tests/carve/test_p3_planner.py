@@ -49,6 +49,26 @@ class P3PlannerTests(unittest.TestCase):
         self.assertTrue(torch.isfinite(loss))
         self.assertGreaterEqual(float(loss), 0.0)
 
+    def test_truncated_poisson_nll_respects_sample_weights(self) -> None:
+        log_lambda = torch.tensor([0.0, 1.0, 2.0], dtype=torch.float32)
+        targets = torch.tensor([1.0, 2.0, 4.0], dtype=torch.float32)
+
+        unweighted = truncated_poisson_nll(log_lambda, targets)
+        equal_weights = truncated_poisson_nll(
+            log_lambda, targets, sample_weights=torch.ones_like(targets)
+        )
+        # Equal weights must yield the same loss as the unweighted mean.
+        self.assertTrue(torch.allclose(unweighted, equal_weights, atol=1e-6))
+
+        # Up-weighting the high-count sample should change the loss.
+        skewed_weights = torch.tensor([0.1, 1.0, 5.0], dtype=torch.float32)
+        skewed = truncated_poisson_nll(log_lambda, targets, sample_weights=skewed_weights)
+        self.assertFalse(torch.allclose(unweighted, skewed, atol=1e-3))
+
+    def test_count_planner_bias_zero_initialized(self) -> None:
+        planner = CountPlanner(hidden_size=4, num_event_types=2)
+        self.assertTrue(torch.allclose(planner.proj.bias, torch.zeros_like(planner.proj.bias)))
+
     def test_truncated_poisson_argmax_inference(self) -> None:
         low_rate = truncated_poisson_argmax(torch.tensor([torch.log(torch.tensor(0.2))]), k_clip=16)
         mid_rate = truncated_poisson_argmax(torch.tensor([torch.log(torch.tensor(3.2))]), k_clip=16)

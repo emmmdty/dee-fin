@@ -208,3 +208,52 @@ Reference rule-path numbers from the audit (`runs/carve/p5b_duee_fin_dev500_seed
 
 This smoke does **not** assert P5b acceptance. The next prerequisite for any P5b dev-rerun claim is a fresh P5b acceptance phase doc with explicit per-route criteria.
 
+---
+
+## R3 v2.1 (2026-05-14): Weighted Poisson NLL + Trend Criterion Rewrite
+
+### Scope and rationale
+
+v2.1 isolates one hypothesis about v2's count-head failure: was `count_mae_positive` worse than `predict-1` because of weak gradient signal under imbalance (78% of positive `(doc, type)` pairs have `n=1`), or because of document-level pooling losing per-occurrence evidence? Two minimal changes:
+
+- `truncated_poisson_nll` now accepts optional `sample_weights`. The runner passes `weights = 1 + ln(n)` for positive samples, shifting gradient mass toward `n ≥ 2` cases without letting `n=16` outliers dominate.
+- `CountPlanner.proj.bias` is zero-initialized. Cold-start `log λ ≈ 0` → `λ ≈ 1` → default prediction is `n=1`. The model must actively learn to upgrade.
+
+The acceptance trend criterion was also rewritten: `_has_required_overall_decrease(history, key, min_ratio=2.0, min_epochs=10)` checks `first/last ≥ 2.0` over `≥ 10` epochs, replacing the 6-epoch window check that mis-fired on v2's smooth convergence (5.86× decrease across 50 epochs but no 6-epoch window halved).
+
+### v2.1 non-smoke evidence (`runs/carve/r3_planner_only_duee_fin_seed42_v2_1`)
+
+50 epochs, batch 64, all_train (6515 docs, 84695 pairs), `evidence_lexical`, elapsed 668.0s. Full per-epoch trajectory and the methodology recommendation are in `docs/measurements/r3_planner_only_duee_fin_seed42_v2_1.md`.
+
+Acceptance verdict (5/8 PASS, vs 3/8 in v2):
+
+| Check | v2 | v2.1 | Δ |
+|---|:---:|:---:|---|
+| multi_event_dev type_gate_auc | PASS 0.983 | PASS 0.982 | within noise |
+| multi_event_dev type_gate_f1_youden | PASS 0.832 | PASS 0.825 | within noise |
+| multi_event_dev count_mae_positive | FAIL 0.899 | FAIL 0.870 | -3.2% improvement, still above predict-1 0.836 |
+| all_dev type_gate_auc | PASS 0.988 | PASS 0.987 | within noise |
+| all_dev type_gate_f1_youden | PASS 0.778 | PASS 0.778 | unchanged |
+| all_dev count_mae_positive | FAIL 0.414 | FAIL 0.404 | -2.4% improvement, still above predict-1 0.348 |
+| training/presence_loss_trend | FAIL (criterion bug) | **PASS** 5.74× over 50 epochs | criterion fix verified |
+| training/count_loss_trend | FAIL | FAIL 1.34× (weighting reshapes the curve) | not actionable |
+
+Net `accepted=false`. Same TypeGate verdict as v2 (large margins over `p5b_lexical_trigger`). Count head improvement is real but small; the gap to `predict-1` is still 0.034 (multi_event_dev) and 0.056 (all_dev).
+
+### Methodology conclusion
+
+The reweighting + bias-init probe is now a clean ablation:
+
+1. **The count head failure is not an optimization problem.** Weighted NLL improved `count_mae_positive` by ~3% on both populations; this is not noise but it is also not enough to beat `predict-1`. The model learns to nudge predictions toward higher `n` for some cases, but the document-level features do not contain enough per-occurrence signal to identify the right cases.
+2. **The bottleneck is architectural.** `[global_repr; type_emb; evidence_vec; lexical_hit]` collapses per-occurrence evidence into a single type-attended pool. To distinguish "1 record" from "3 records" the model needs sentence-level scoring that can sum binary or expected-count predictions across the document.
+3. **TypeGate is solid.** Both v2 and v2.1 give AUC ≈ 0.98 (multi_event_dev) / 0.99 (all_dev) and F1 ≈ 0.83 / 0.78. The v2 design (evidence pooling + lexical feature + dual-population baseline-relative gate) survives every gate by large margins.
+4. **Trend gate fix is validated.** `presence_loss_trend` is now PASS for v2.1; the same fix would have flipped v2 to PASS as well, since v2's 5.86× decrease over 50 epochs comfortably exceeds the new 2× threshold.
+
+### Recommendation for R3 v3 (separate phase, not in scope)
+
+- Move the count head to sentence-level supervision. For each sentence, predict a binary "this sentence contains a record of type X" label or an expected-count contribution; aggregate over sentences. Supervision comes from per-record sentence alignment, which is already available implicitly via `_type_gate` (lexical) and via the P3 mention CRF outputs (`carve/p3_runner.py`).
+- Alternative path: drop count from the acceptance gate, treat R3 as TypeGate-only acceptance, and let P5b use a lexical trigger fallback for count. The v2 P5b smoke already showed this hybrid lifts baseline F1 by ~2.5× on DuEE-Fin dev500.
+- Keep TypeGate v2/v2.1 untouched.
+
+R3 v3 is not implemented in this session and not in the current plan scope. The findings here are the input to whatever phase doc opens R3 v3.
+

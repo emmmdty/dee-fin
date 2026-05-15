@@ -1,0 +1,165 @@
+{
+  "summary": {
+    "tp_args": 102,
+    "total_fp_args": 1107,
+    "noise_record_count": 297,
+    "noise_fp_args": 880,
+    "misallocation_fp_args": 227,
+    "share_gate_total_dup_args": 0,
+    "share_gate_excess_dup_args": 0,
+    "candidate_miss_or_record_drop": 1824,
+    "pathological_gold": 47,
+    "total_pred_args": 1209
+  },
+  "ratios": {
+    "noise_fp_share": 0.7949,
+    "misallocation_fp_share": 0.2051,
+    "share_gate_excess_share_of_fp": 0.0,
+    "precision_args": 0.0844
+  },
+  "by_event_type": {
+    "质押": {
+      "noise_records": 84,
+      "noise_fp_args": 284,
+      "misallocation_fp_args": 101,
+      "tp_args": 34,
+      "share_gate_excess": 0,
+      "candidate_miss": 443,
+      "pred_records": 114,
+      "gold_records": 68,
+      "matched_records": 30
+    },
+    "解除质押": {
+      "noise_records": 68,
+      "noise_fp_args": 215,
+      "misallocation_fp_args": 66,
+      "tp_args": 35,
+      "share_gate_excess": 0,
+      "candidate_miss": 258,
+      "pred_records": 94,
+      "gold_records": 45,
+      "matched_records": 26
+    },
+    "股东减持": {
+      "noise_records": 32,
+      "noise_fp_args": 139,
+      "misallocation_fp_args": 10,
+      "tp_args": 2,
+      "share_gate_excess": 0,
+      "candidate_miss": 155,
+      "pred_records": 34,
+      "gold_records": 29,
+      "matched_records": 2
+    },
+    "股份回购": {
+      "noise_records": 17,
+      "noise_fp_args": 54,
+      "misallocation_fp_args": 10,
+      "tp_args": 5,
+      "share_gate_excess": 0,
+      "candidate_miss": 205,
+      "pred_records": 21,
+      "gold_records": 41,
+      "matched_records": 4
+    },
+    "亏损": {
+      "noise_records": 25,
+      "noise_fp_args": 40,
+      "misallocation_fp_args": 9,
+      "tp_args": 6,
+      "share_gate_excess": 0,
+      "candidate_miss": 85,
+      "pred_records": 31,
+      "gold_records": 26,
+      "matched_records": 6
+    },
+    "高管变动": {
+      "noise_records": 15,
+      "noise_fp_args": 33,
+      "misallocation_fp_args": 12,
+      "tp_args": 9,
+      "share_gate_excess": 0,
+      "candidate_miss": 230,
+      "pred_records": 22,
+      "gold_records": 47,
+      "matched_records": 7
+    },
+    "股东增持": {
+      "noise_records": 7,
+      "noise_fp_args": 38,
+      "misallocation_fp_args": 5,
+      "tp_args": 1,
+      "share_gate_excess": 0,
+      "candidate_miss": 74,
+      "pred_records": 8,
+      "gold_records": 16,
+      "matched_records": 1
+    },
+    "中标": {
+      "noise_records": 10,
+      "noise_fp_args": 16,
+      "misallocation_fp_args": 10,
+      "tp_args": 8,
+      "share_gate_excess": 0,
+      "candidate_miss": 83,
+      "pred_records": 16,
+      "gold_records": 21,
+      "matched_records": 6
+    },
+    "企业收购": {
+      "noise_records": 18,
+      "noise_fp_args": 25,
+      "misallocation_fp_args": 0,
+      "tp_args": 0,
+      "share_gate_excess": 0,
+      "candidate_miss": 104,
+      "pred_records": 18,
+      "gold_records": 27,
+      "matched_records": 0
+    },
+    "公司上市": {
+      "noise_records": 8,
+      "noise_fp_args": 20,
+      "misallocation_fp_args": 0,
+      "tp_args": 0,
+      "share_gate_excess": 0,
+      "candidate_miss": 55,
+      "pred_records": 8,
+      "gold_records": 22,
+      "matched_records": 0
+    },
+    "企业融资": {
+      "noise_records": 7,
+      "noise_fp_args": 9,
+      "misallocation_fp_args": 2,
+      "tp_args": 1,
+      "share_gate_excess": 0,
+      "candidate_miss": 34,
+      "pred_records": 8,
+      "gold_records": 10,
+      "matched_records": 1
+    },
+    "企业破产": {
+      "noise_records": 5,
+      "noise_fp_args": 6,
+      "misallocation_fp_args": 0,
+      "tp_args": 0,
+      "share_gate_excess": 0,
+      "candidate_miss": 13,
+      "pred_records": 5,
+      "gold_records": 6,
+      "matched_records": 0
+    },
+    "被约谈": {
+      "noise_records": 1,
+      "noise_fp_args": 1,
+      "misallocation_fp_args": 2,
+      "tp_args": 1,
+      "share_gate_excess": 0,
+      "candidate_miss": 85,
+      "pred_records": 2,
+      "gold_records": 24,
+      "matched_records": 1
+    }
+  }
+}

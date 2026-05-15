@@ -6,6 +6,15 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+try:
+    from scipy.cluster.hierarchy import fcluster as _scipy_fcluster
+    from scipy.cluster.hierarchy import linkage as _scipy_linkage
+    from scipy.spatial.distance import squareform as _scipy_squareform
+
+    _SCIPY_AVAILABLE = True
+except ImportError:
+    _SCIPY_AVAILABLE = False
+
 from evaluator.canonical.normalize import normalize_text
 from evaluator.canonical.types import CanonicalEventRecord
 
@@ -275,6 +284,69 @@ class ArgumentCoreferenceHead(nn.Module):
         return affinity
 
 
+def predict_clusters_agglomerative(
+    affinity: torch.Tensor,
+    span_mask: torch.Tensor,
+    *,
+    threshold: float,
+    temperature: float = 1.0,
+) -> list[set[int]]:
+    """Average-linkage agglomerative clustering over calibrated pairwise affinities.
+
+    Two clusters merge only when their *average* inter-cluster sigmoid probability
+    exceeds `threshold`, preventing a single false-positive edge from triggering a
+    cascade merge (the connected-components weakness fixed in v5).
+
+    Falls back to `predict_clusters` (connected-components) if scipy is not available.
+
+    Args:
+        affinity: [M, M] logit matrix for a single document.
+        span_mask: [M] boolean mask; False positions are padding.
+        threshold: probability cutoff used as the merge criterion (same search space as v4).
+        temperature: divisor applied to logits before sigmoid for calibration (default 1.0 = no-op).
+    """
+    if not _SCIPY_AVAILABLE:
+        return predict_clusters(affinity, span_mask, threshold=threshold)
+
+    if affinity.dim() != 2 or affinity.shape[0] != affinity.shape[1]:
+        raise ValueError(f"affinity must be [M, M]; got {tuple(affinity.shape)}")
+    m_max = int(affinity.shape[0])
+    valid = span_mask.to(torch.bool).reshape(-1).tolist()
+    if len(valid) != m_max:
+        raise ValueError("span_mask length must match affinity dimension")
+    valid_indices = [i for i, v in enumerate(valid) if v]
+    if not valid_indices:
+        return []
+    if len(valid_indices) == 1:
+        return [{valid_indices[0]}]
+
+    probs = torch.sigmoid(affinity.detach().cpu() / max(float(temperature), 1e-6)).numpy()
+
+    n = len(valid_indices)
+    idx_map = {vi: li for li, vi in enumerate(valid_indices)}
+
+    # Build condensed distance matrix for valid mentions only
+    import numpy as np
+    dist_condensed = []
+    for li in range(n):
+        for lj in range(li + 1, n):
+            vi, vj = valid_indices[li], valid_indices[lj]
+            p = float((probs[vi, vj] + probs[vj, vi]) / 2.0)
+            dist_condensed.append(max(1.0 - p, 0.0))
+
+    dist_arr = np.array(dist_condensed, dtype=np.float64)
+    Z = _scipy_linkage(dist_arr, method="average")
+    # fcluster with criterion='distance': merge clusters whose average inter-cluster
+    # distance < (1 - threshold), i.e., average probability > threshold
+    cut = max(1.0 - float(threshold), 0.0)
+    raw_labels = _scipy_fcluster(Z, t=cut, criterion="distance")
+
+    groups: dict[int, set[int]] = {}
+    for local_i, cluster_id in enumerate(raw_labels):
+        groups.setdefault(int(cluster_id), set()).add(valid_indices[local_i])
+    return list(groups.values())
+
+
 def predict_clusters(
     affinity: torch.Tensor,
     span_mask: torch.Tensor,
@@ -376,7 +448,7 @@ class RecordPlanner(nn.Module):
         self.type_gate = TypeGate(hidden_size, num_event_types)
         if count_head_mode == "sentence":
             self.count_planner = SentenceLevelCountPlanner(hidden_size, num_event_types)
-        elif count_head_mode == "coref":
+        elif count_head_mode in ("coref", "coref_v5"):
             self.count_planner = ArgumentCoreferenceHead(
                 hidden_size,
                 num_event_types,
@@ -441,9 +513,9 @@ class RecordPlanner(nn.Module):
         type_id: torch.Tensor,
         span_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        if self.count_head_mode != "coref":
+        if self.count_head_mode not in ("coref", "coref_v5"):
             raise RuntimeError(
-                f"coref_affinity is only available when count_head_mode='coref', "
+                f"coref_affinity is only available when count_head_mode='coref' or 'coref_v5', "
                 f"got {self.count_head_mode!r}"
             )
         return self.count_planner(span_repr, span_role_id, span_sent_pos, type_id, span_mask=span_mask)
@@ -502,9 +574,9 @@ class RecordPlanner(nn.Module):
                 "count_log_lambda is not available when count_head_mode='sentence'; "
                 "use sentence_count_logits + expected_count instead"
             )
-        if self.count_head_mode == "coref":
+        if self.count_head_mode in ("coref", "coref_v5"):
             raise RuntimeError(
-                "count_log_lambda is not available when count_head_mode='coref'; "
+                "count_log_lambda is not available when count_head_mode='coref'/'coref_v5'; "
                 "use coref_affinity + predict_clusters instead"
             )
         return self.count_planner(
@@ -545,7 +617,7 @@ class RecordPlanner(nn.Module):
                 raise ValueError("sentence_repr and sentence_mask are required for sentence count head mode")
             count = self.expected_count(type_id, sentence_repr, sentence_mask)
             return int(count.reshape(-1)[0].item())
-        if self.count_head_mode == "coref":
+        if self.count_head_mode in ("coref", "coref_v5"):
             if span_repr is None or span_role_id is None or span_sent_pos is None or span_mask is None:
                 raise ValueError(
                     "span_repr, span_role_id, span_sent_pos, span_mask are required for coref count head mode"
@@ -567,7 +639,10 @@ class RecordPlanner(nn.Module):
             if not bool(mask_one.to(torch.bool).any().item()):
                 # TypeGate fired but no candidate mentions extracted; can not contradict presence -> return 1.
                 return 1
-            clusters = predict_clusters(affinity_one, mask_one, threshold=coref_threshold)
+            if self.count_head_mode == "coref_v5":
+                clusters = predict_clusters_agglomerative(affinity_one, mask_one, threshold=coref_threshold)
+            else:
+                clusters = predict_clusters(affinity_one, mask_one, threshold=coref_threshold)
             return max(len(clusters), 1)
         return self.count_planner.predict_count(
             global_repr,

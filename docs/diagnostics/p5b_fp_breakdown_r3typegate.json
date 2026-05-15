@@ -1,0 +1,479 @@
+{
+  "run_dir": "/home/tjk/myProjects/masterProjects/DEE/dee-fin/runs/carve/p5b_duee_fin_dev500_seed42_r3typegate",
+  "total_fp": 1106,
+  "baseline_fp": 1244,
+  "total_pred_records": 381,
+  "per_event_eval": {
+    "中标": {
+      "tp": 8,
+      "fp": 26,
+      "fn": 91,
+      "precision": 0.2353,
+      "recall": 0.0808,
+      "f1": 0.1203
+    },
+    "亏损": {
+      "tp": 7,
+      "fp": 48,
+      "fn": 89,
+      "precision": 0.1273,
+      "recall": 0.0729,
+      "f1": 0.0927
+    },
+    "企业收购": {
+      "tp": 0,
+      "fp": 25,
+      "fn": 106,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
+    },
+    "企业破产": {
+      "tp": 0,
+      "fp": 6,
+      "fn": 13,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
+    },
+    "企业融资": {
+      "tp": 1,
+      "fp": 11,
+      "fn": 34,
+      "precision": 0.0833,
+      "recall": 0.0286,
+      "f1": 0.0426
+    },
+    "公司上市": {
+      "tp": 0,
+      "fp": 20,
+      "fn": 77,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
+    },
+    "股东减持": {
+      "tp": 2,
+      "fp": 149,
+      "fn": 155,
+      "precision": 0.0132,
+      "recall": 0.0127,
+      "f1": 0.013
+    },
+    "股东增持": {
+      "tp": 1,
+      "fp": 43,
+      "fn": 74,
+      "precision": 0.0227,
+      "recall": 0.0133,
+      "f1": 0.0168
+    },
+    "股份回购": {
+      "tp": 5,
+      "fp": 64,
+      "fn": 211,
+      "precision": 0.0725,
+      "recall": 0.0231,
+      "f1": 0.0351
+    },
+    "被约谈": {
+      "tp": 1,
+      "fp": 3,
+      "fn": 86,
+      "precision": 0.25,
+      "recall": 0.0115,
+      "f1": 0.022
+    },
+    "解除质押": {
+      "tp": 35,
+      "fp": 281,
+      "fn": 275,
+      "precision": 0.1108,
+      "recall": 0.1129,
+      "f1": 0.1118
+    },
+    "质押": {
+      "tp": 34,
+      "fp": 385,
+      "fn": 471,
+      "precision": 0.0811,
+      "recall": 0.0673,
+      "f1": 0.0736
+    },
+    "高管变动": {
+      "tp": 9,
+      "fp": 45,
+      "fn": 242,
+      "precision": 0.1667,
+      "recall": 0.0359,
+      "f1": 0.059
+    }
+  },
+  "count_delta": {
+    "total_excess_records": 154,
+    "overpredict_doc_count": 74,
+    "by_event_type": {
+      "解除质押": {
+        "overpredict": 34,
+        "exact": 3,
+        "underpredict": 3,
+        "excess": 54
+      },
+      "质押": {
+        "overpredict": 32,
+        "exact": 9,
+        "underpredict": 2,
+        "excess": 49
+      },
+      "股东减持": {
+        "overpredict": 17,
+        "exact": 3,
+        "underpredict": 10,
+        "excess": 18
+      },
+      "亏损": {
+        "overpredict": 7,
+        "exact": 4,
+        "underpredict": 5,
+        "excess": 11
+      },
+      "企业收购": {
+        "overpredict": 6,
+        "exact": 5,
+        "underpredict": 12,
+        "excess": 6
+      },
+      "股东增持": {
+        "overpredict": 5,
+        "exact": 0,
+        "underpredict": 5,
+        "excess": 5
+      },
+      "企业融资": {
+        "overpredict": 4,
+        "exact": 1,
+        "underpredict": 4,
+        "excess": 4
+      },
+      "股份回购": {
+        "overpredict": 2,
+        "exact": 1,
+        "underpredict": 20,
+        "excess": 2
+      },
+      "高管变动": {
+        "overpredict": 2,
+        "exact": 4,
+        "underpredict": 17,
+        "excess": 2
+      },
+      "公司上市": {
+        "overpredict": 1,
+        "exact": 5,
+        "underpredict": 6,
+        "excess": 1
+      },
+      "企业破产": {
+        "overpredict": 1,
+        "exact": 3,
+        "underpredict": 2,
+        "excess": 1
+      },
+      "中标": {
+        "overpredict": 1,
+        "exact": 5,
+        "underpredict": 4,
+        "excess": 1
+      },
+      "被约谈": {
+        "overpredict": 0,
+        "exact": 0,
+        "underpredict": 6,
+        "excess": 0
+      }
+    }
+  },
+  "hallucination": {
+    "total_args": 1209,
+    "hallucinated": 5,
+    "hallucination_rate": 0.0041,
+    "by_role": {
+      "披露时间": {
+        "total": 141,
+        "hallucinated": 2,
+        "hallucination_rate": 0.0142
+      },
+      "交易股票/股份数量": {
+        "total": 30,
+        "hallucinated": 1,
+        "hallucination_rate": 0.0333
+      },
+      "披露日期": {
+        "total": 16,
+        "hallucinated": 1,
+        "hallucination_rate": 0.0625
+      },
+      "中标日期": {
+        "total": 7,
+        "hallucinated": 1,
+        "hallucination_rate": 0.1429
+      },
+      "变动后职位": {
+        "total": 13,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "变动类型": {
+        "total": 6,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "高管职位": {
+        "total": 15,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "事件时间": {
+        "total": 122,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "质押物占总股比": {
+        "total": 146,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "质押物占持股比": {
+        "total": 140,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "质押股票/股份数量": {
+        "total": 114,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "质押物": {
+        "total": 75,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "交易金额": {
+        "total": 61,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "减持部分占总股本比例": {
+        "total": 20,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "减持部分占所持比例": {
+        "total": 26,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "每股交易价格": {
+        "total": 43,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "质押方": {
+        "total": 45,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "占公司总股本比例": {
+        "total": 13,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "回购完成时间": {
+        "total": 11,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "回购股份数量": {
+        "total": 16,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "任职公司": {
+        "total": 1,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "增持部分占总股本比例": {
+        "total": 7,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "增持部分占所持比例": {
+        "total": 7,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "净亏损": {
+        "total": 25,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "财报周期": {
+        "total": 14,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "亏损变化": {
+        "total": 6,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "约谈机构": {
+        "total": 2,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "中标金额": {
+        "total": 15,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "破产时间": {
+        "total": 2,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "减持方": {
+        "total": 12,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "交易完成时间": {
+        "total": 17,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "增持方": {
+        "total": 2,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "融资金额": {
+        "total": 6,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "募资金额": {
+        "total": 5,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "发行价格": {
+        "total": 5,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "债务规模": {
+        "total": 3,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "中标公司": {
+        "total": 2,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "招标方": {
+        "total": 1,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "质押物所属公司": {
+        "total": 6,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "收购完成时间": {
+        "total": 4,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "质权方": {
+        "total": 3,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "融资轮次": {
+        "total": 1,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "被约谈时间": {
+        "total": 1,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "收购方": {
+        "total": 1,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      },
+      "收购标的": {
+        "total": 1,
+        "hallucinated": 0,
+        "hallucination_rate": 0.0
+      }
+    }
+  },
+  "role_fp": {
+    "total_fp_args_from_excess_records": 436,
+    "by_role": {
+      "质押物占总股比": 66,
+      "质押物占持股比": 56,
+      "质押股票/股份数量": 53,
+      "披露时间": 51,
+      "事件时间": 31,
+      "质押物": 28,
+      "交易金额": 21,
+      "交易股票/股份数量": 18,
+      "每股交易价格": 17,
+      "质押方": 13,
+      "减持部分占所持比例": 12,
+      "减持部分占总股本比例": 10,
+      "交易完成时间": 9,
+      "减持方": 8,
+      "净亏损": 8,
+      "融资金额": 4,
+      "增持部分占总股本比例": 4,
+      "增持部分占所持比例": 4,
+      "财报周期": 4,
+      "亏损变化": 3,
+      "高管职位": 2,
+      "占公司总股本比例": 2,
+      "回购股份数量": 2,
+      "收购完成时间": 2,
+      "增持方": 1,
+      "变动后职位": 1,
+      "募资金额": 1,
+      "发行价格": 1,
+      "回购完成时间": 1,
+      "质权方": 1,
+      "破产时间": 1,
+      "中标金额": 1
+    },
+    "by_event_type": {
+      "解除质押": 152,
+      "质押": 136,
+      "股东减持": 77,
+      "股东增持": 26,
+      "亏损": 15,
+      "股份回购": 9,
+      "企业收购": 7,
+      "高管变动": 5,
+      "企业融资": 4,
+      "公司上市": 3,
+      "企业破产": 1,
+      "中标": 1
+    }
+  }
+}

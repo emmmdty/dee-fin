@@ -97,7 +97,7 @@ class PlannerGate:
             raise ValueError("encoder is required for evidence / evidence_lexical feature modes")
 
     @torch.no_grad()
-    def predict(self, document: DueeDocument, event_type: str) -> tuple[bool, int]:
+    def predict(self, document: DueeDocument, event_type: str) -> tuple[bool, int | None]:
         type_id = self.type_to_id.get(event_type)
         if type_id is None:
             return False, 0
@@ -128,15 +128,19 @@ class PlannerGate:
             if sentence_kwarg is None or mask_kwarg is None:
                 raise ValueError("sentence_repr required for sentence count head in PlannerGate")
             count = int(self.planner.expected_count(type_tensor, sentence_kwarg, mask_kwarg).reshape(-1)[0].item())
-        else:
-            log_lambda = self.planner.count_log_lambda(
-                global_repr,
-                type_tensor,
-                sentence_repr=sentence_kwarg,
-                sentence_mask=mask_kwarg,
-                lexical_hit=lexical_kwarg,
-            )
-            count = int(truncated_poisson_argmax(log_lambda, k_clip=self.k_clip).reshape(-1)[0].item())
+            return True, max(count, 1)
+        if self.count_head_mode in {"coref", "coref_v5"}:
+            # Path A: PlannerGate decides presence; record count falls back to lexical heuristic
+            # (mention extraction at inference time would require a trained MentionCRF).
+            return True, None
+        log_lambda = self.planner.count_log_lambda(
+            global_repr,
+            type_tensor,
+            sentence_repr=sentence_kwarg,
+            sentence_mask=mask_kwarg,
+            lexical_hit=lexical_kwarg,
+        )
+        count = int(truncated_poisson_argmax(log_lambda, k_clip=self.k_clip).reshape(-1)[0].item())
         return True, max(count, 1)
 
     @torch.no_grad()
@@ -208,6 +212,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--planner-encoder-path", default="", help="path to encoder safetensors directory; required when --planner-checkpoint is set unless --planner-feature-mode is global_only.")
     parser.add_argument("--planner-feature-mode", choices=PLANNER_FEATURE_MODES, default="evidence_lexical", help="must match the encoder_feature_mode used when the planner checkpoint was trained.")
     parser.add_argument("--planner-presence-threshold", type=float, default=None, help="override presence threshold; default uses checkpoint metadata.")
+    parser.add_argument("--alloc-checkpoint", default="", help="path to pre-trained allocation_diagnostic.pt. When set, allocation training is skipped and weights are loaded instead.")
     return parser
 
 
@@ -281,15 +286,22 @@ def run_p5b(args: argparse.Namespace) -> dict[str, Any]:
             flush=True,
         )
     model = AllocationDiagnosticModel(feature_dim=9).to(device)
-    history = _train(
-        model,
-        groups,
-        device=device,
-        max_epochs=args.max_epochs,
-        patience=args.patience,
-        batch_size=args.batch_size,
-        grad_accum=args.grad_accum,
-    )
+    if args.alloc_checkpoint:
+        state = torch.load(args.alloc_checkpoint, map_location=device, weights_only=True)
+        model.load_state_dict(state)
+        model.eval()
+        history = []
+        print(json.dumps({"stage": "alloc_checkpoint_loaded", "checkpoint": str(args.alloc_checkpoint)}, ensure_ascii=False), flush=True)
+    else:
+        history = _train(
+            model,
+            groups,
+            device=device,
+            max_epochs=args.max_epochs,
+            patience=args.patience,
+            batch_size=args.batch_size,
+            grad_accum=args.grad_accum,
+        )
     _write_json(run_dir / "diagnostics" / "train_history.json", history)
     (run_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), run_dir / "checkpoints" / "allocation_diagnostic.pt")

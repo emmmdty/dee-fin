@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from carve.p3_planner import (
     SentenceLevelCountPlanner,
     coref_pair_loss,
     predict_clusters,
+    predict_clusters_agglomerative,
     presence_loss,
     sentence_count_loss,
     truncated_poisson_argmax,
@@ -50,6 +52,10 @@ from evaluator.canonical.schema import EventSchema
 FEATURE_MODES = ("global_only", "evidence", "evidence_lexical")
 TRAIN_POPULATIONS = ("all_train", "multi_event_train")
 ACCEPTANCE_POPULATIONS: tuple[str, ...] = ("multi_event_dev", "all_dev")
+
+
+def _is_coref_mode(mode: str) -> bool:
+    return mode in ("coref", "coref_v5")
 
 
 @dataclass(frozen=True)
@@ -111,9 +117,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-batch-size", type=int, default=128)
     parser.add_argument(
         "--count-head-mode",
-        choices=("document", "sentence", "coref"),
+        choices=("document", "sentence", "coref", "coref_v5"),
         default="document",
-        help="document (v2.1, default), sentence (v3), coref (v4 APCC)",
+        help="document (v2.1, default), sentence (v3), coref (v4 APCC), coref_v5 (v5 agglomerative+calibration)",
     )
     parser.add_argument(
         "--sentence-label-min-hits",
@@ -157,6 +163,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=str,
         default=",".join(f"{t:.2f}" for t in CANDIDATE_THRESHOLD_GRID),
         help="v4 only: comma-separated thresholds searched on train for clustering cutoff",
+    )
+    parser.add_argument(
+        "--eval-only",
+        default="",
+        help="path to a trained planner checkpoint (best.pt). When set, training is skipped "
+             "and the planner is loaded from this file before evaluation.",
+    )
+    parser.add_argument(
+        "--override-cluster-method",
+        choices=("auto", "coref", "coref_v5"),
+        default="auto",
+        help="evaluation-time clustering algorithm override. auto = use count_head_mode. "
+             "coref = connected components (v4). coref_v5 = agglomerative average linkage (v5).",
+    )
+    parser.add_argument(
+        "--override-temperature",
+        type=float,
+        default=None,
+        help="evaluation-time temperature override. Skips temperature calibration when set.",
+    )
+    parser.add_argument(
+        "--apply-role-splitter",
+        action="store_true",
+        help="post-clustering role-conflict splitter. Splits clusters where any role has >1 distinct surface value. Requires gold-mention extraction (uses gold role assignments).",
     )
     return parser
 
@@ -249,7 +279,14 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
         num_roles=0,
         max_sentence_pos=max_sentences,
     ).to(device)
-    if count_head_mode == "coref":
+    eval_only_path = str(getattr(args, "eval_only", "") or "").strip()
+    if eval_only_path:
+        payload = torch.load(eval_only_path, map_location=device, weights_only=False)
+        planner.load_state_dict(payload["planner"])
+        planner.eval()
+        history = []
+        print(json.dumps({"stage": "eval_only_checkpoint_loaded", "path": eval_only_path}, ensure_ascii=False), flush=True)
+    elif _is_coref_mode(count_head_mode):
         history = _train_coref_planner(planner, train_cache, args, device)
     else:
         history = _train_two_stage_planner(planner, train_cache, args, device)
@@ -266,17 +303,38 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
     coref_threshold = 0.5
     coref_threshold_grid: dict[str, float] = {}
     coref_diagnostics: dict[str, dict[str, Any]] = {}
-    if count_head_mode == "coref":
+    coref_temperature = 1.0
+    if _is_coref_mode(count_head_mode):
         grid_str = str(getattr(args, "coref_threshold_grid", "")).strip()
         grid: tuple[float, ...]
         if grid_str:
             grid = tuple(float(x) for x in grid_str.split(",") if x.strip())
         else:
             grid = CANDIDATE_THRESHOLD_GRID
-        coref_threshold, coref_threshold_grid = _tune_coref_threshold(planner, train_cache, grid, device)
+        override_cluster = str(getattr(args, "override_cluster_method", "auto") or "auto").strip()
+        effective_cluster = count_head_mode if override_cluster == "auto" else override_cluster
+        override_temp = getattr(args, "override_temperature", None)
+        if override_temp is not None:
+            coref_temperature = float(override_temp)
+        elif effective_cluster == "coref_v5":
+            coref_temperature = _calibrate_coref_temperature(planner, dev_multi_cache, device)
+        apply_role_splitter = bool(getattr(args, "apply_role_splitter", False))
+        coref_threshold, coref_threshold_grid = _tune_coref_threshold(
+            planner, train_cache, grid, device,
+            cluster_method=effective_cluster, temperature=coref_temperature,
+            apply_role_splitter=apply_role_splitter,
+        )
         metrics = {
-            "multi_event_dev": _evaluate_coref_planner(planner, dev_multi_cache, device, args, coref_threshold),
-            "all_dev": _evaluate_coref_planner(planner, dev_all_cache, device, args, coref_threshold),
+            "multi_event_dev": _evaluate_coref_planner(
+                planner, dev_multi_cache, device, args, coref_threshold,
+                cluster_method=effective_cluster, temperature=coref_temperature,
+                apply_role_splitter=apply_role_splitter,
+            ),
+            "all_dev": _evaluate_coref_planner(
+                planner, dev_all_cache, device, args, coref_threshold,
+                cluster_method=effective_cluster, temperature=coref_temperature,
+                apply_role_splitter=apply_role_splitter,
+            ),
         }
         for cache_name, cache_ref in (
             ("train", train_cache),
@@ -294,7 +352,7 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
         "multi_event_dev": _baseline_report(dev_multi_cache, k_clip, legacy_model, device),
         "all_dev": _baseline_report(dev_all_cache, k_clip, legacy_model, device),
     }
-    if count_head_mode == "coref":
+    if _is_coref_mode(count_head_mode):
         for population in ACCEPTANCE_POPULATIONS:
             baselines[population]["v2_1_poisson_static"] = {
                 "count_mae_positive": STATIC_REFERENCE_BASELINES["v2_1_poisson"][population]["count_mae_positive"],
@@ -328,10 +386,11 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
                 "max_sentences": max_sentences,
                 "count_head_mode": count_head_mode,
                 "sentence_label_min_hits": sentence_min_hits if count_head_mode == "sentence" else None,
-                "coref_threshold": coref_threshold if count_head_mode == "coref" else None,
-                "mention_source": mention_source if count_head_mode == "coref" else None,
-                "max_mentions": max_mentions if count_head_mode == "coref" else None,
-                "p3_crf_checkpoint": str(getattr(args, "p3_crf_checkpoint", "")) if count_head_mode == "coref" else None,
+                "coref_threshold": coref_threshold if _is_coref_mode(count_head_mode) else None,
+                "coref_temperature": coref_temperature if count_head_mode == "coref_v5" else None,
+                "mention_source": mention_source if _is_coref_mode(count_head_mode) else None,
+                "max_mentions": max_mentions if _is_coref_mode(count_head_mode) else None,
+                "p3_crf_checkpoint": str(getattr(args, "p3_crf_checkpoint", "")) if _is_coref_mode(count_head_mode) else None,
             },
         },
         run_dir / "checkpoints" / "r3_planner.pt",
@@ -353,11 +412,12 @@ def run_r3_planner_only(args: argparse.Namespace) -> dict[str, Any]:
         "baselines": baselines,
         "count_head_mode": count_head_mode,
         "noise_diagnostics": noise_diagnostics,
-        "coref_threshold": coref_threshold if count_head_mode == "coref" else None,
-        "coref_threshold_grid_train_mae": coref_threshold_grid if count_head_mode == "coref" else {},
+        "coref_threshold": coref_threshold if _is_coref_mode(count_head_mode) else None,
+        "coref_temperature": coref_temperature if count_head_mode == "coref_v5" else None,
+        "coref_threshold_grid_train_mae": coref_threshold_grid if _is_coref_mode(count_head_mode) else {},
         "coref_diagnostics": coref_diagnostics,
-        "mention_source": mention_source if count_head_mode == "coref" else None,
-        "max_mentions": max_mentions if count_head_mode == "coref" else 0,
+        "mention_source": mention_source if _is_coref_mode(count_head_mode) else None,
+        "max_mentions": max_mentions if _is_coref_mode(count_head_mode) else 0,
         "acceptance_checks": acceptance_checks,
         "accepted": all(check["passed"] for check in acceptance_checks.values()),
         "elapsed_seconds": round(time.time() - start_time, 3),
@@ -389,7 +449,7 @@ def _build_feature_cache(
 ) -> PlannerFeatureCache:
     event_types = list(schema.event_roles)
     build_sentence_labels = count_head_mode == "sentence"
-    build_coref_spans = count_head_mode == "coref"
+    build_coref_spans = _is_coref_mode(count_head_mode)
     global_rows: list[torch.Tensor] = []
     sentence_rows: list[torch.Tensor] = []
     count_rows: list[list[int]] = []
@@ -1171,34 +1231,35 @@ def _acceptance_checks(
                 "passed_absolute": sent_auc >= 0.75,
                 "passed": sent_auc >= 0.75,
             }
-    # trend checks
-    checks["training/presence_loss_trend"] = {
-        "value": _trend_summary(history, "presence_loss"),
-        "threshold": "first/last ratio >= 2.0 over at least 10 epochs",
-        "passed": _has_required_overall_decrease(history, "presence_loss"),
-    }
-    if count_head_mode == "sentence":
-        checks["training/sentence_count_loss_trend"] = {
-            "value": _trend_summary(history, "count_loss"),
-            "threshold": "first/last ratio >= 1.5 over at least 10 epochs",
-            "passed": _has_required_overall_decrease(history, "count_loss", min_ratio=1.5),
-        }
-    elif count_head_mode == "coref":
-        checks["training/coref_loss_trend"] = {
-            "value": _trend_summary(history, "count_loss"),
-            "threshold": "first/last ratio >= 1.5 over at least 10 epochs",
-            "passed": _has_required_overall_decrease(history, "count_loss", min_ratio=1.5),
-        }
-    else:
-        checks["training/count_loss_trend"] = {
-            "value": _trend_summary(history, "count_loss"),
+    # trend checks (skipped when history is empty, e.g. eval-only mode that loads a trained checkpoint)
+    if history:
+        checks["training/presence_loss_trend"] = {
+            "value": _trend_summary(history, "presence_loss"),
             "threshold": "first/last ratio >= 2.0 over at least 10 epochs",
-            "passed": _has_required_overall_decrease(history, "count_loss"),
+            "passed": _has_required_overall_decrease(history, "presence_loss"),
         }
+        if count_head_mode == "sentence":
+            checks["training/sentence_count_loss_trend"] = {
+                "value": _trend_summary(history, "count_loss"),
+                "threshold": "first/last ratio >= 1.5 over at least 10 epochs",
+                "passed": _has_required_overall_decrease(history, "count_loss", min_ratio=1.5),
+            }
+        elif _is_coref_mode(count_head_mode):
+            checks["training/coref_loss_trend"] = {
+                "value": _trend_summary(history, "count_loss"),
+                "threshold": "first/last ratio >= 1.5 over at least 10 epochs",
+                "passed": _has_required_overall_decrease(history, "count_loss", min_ratio=1.5),
+            }
+        else:
+            checks["training/count_loss_trend"] = {
+                "value": _trend_summary(history, "count_loss"),
+                "threshold": "first/last ratio >= 2.0 over at least 10 epochs",
+                "passed": _has_required_overall_decrease(history, "count_loss"),
+            }
 
-    # v4 adds pair AUC and cluster B³ checks per population, and a static-baselines
+    # v4/v5 add pair AUC and cluster B³ checks per population, and a static-baselines
     # minimum for count_mae_positive (predict_one ∧ p5b_lexical_trigger ∧ v2.1 ∧ v3).
-    if count_head_mode == "coref":
+    if _is_coref_mode(count_head_mode):
         coref_count_margins = {"multi_event_dev": 0.05, "all_dev": 0.02}
         for population in ACCEPTANCE_POPULATIONS:
             metrics = metrics_by_population.get(population, {})
@@ -1239,6 +1300,16 @@ def _acceptance_checks(
                     "absolute_threshold": f">= {float(threshold):.6f}",
                     "passed_absolute": bool(passed),
                     "passed": bool(passed),
+                }
+            # v5 check #14: multi_event_dev cluster_b3_precision >= 0.55
+            if count_head_mode == "coref_v5" and population == "multi_event_dev":
+                prec_value = float(metrics.get("cluster_b3_precision", 0.0))
+                prec_passed = prec_value >= 0.55
+                checks[f"{population}/cluster_b3_precision"] = {
+                    "value": round(prec_value, 6),
+                    "absolute_threshold": ">= 0.550000",
+                    "passed_absolute": bool(prec_passed),
+                    "passed": bool(prec_passed),
                 }
         # Ambiguity audit: presence of the field is itself the gate (missing = fail)
         ambig_present = all(
@@ -1527,6 +1598,10 @@ def _evaluate_coref_planner(
     device: torch.device,
     args: argparse.Namespace,
     coref_threshold: float,
+    *,
+    cluster_method: str = "coref",
+    temperature: float = 1.0,
+    apply_role_splitter: bool = False,
 ) -> dict[str, float | int | str]:
     if cache.span_repr is None:
         return _empty_metrics(cache.name, 1)
@@ -1597,6 +1672,8 @@ def _evaluate_coref_planner(
                         torch.tensor([t], device=device),
                         cache.documents[d], cache.event_types[t],
                         mention_values, coref_threshold,
+                        cluster_method=cluster_method, temperature=temperature,
+                        apply_role_splitter=apply_role_splitter,
                     )
                     if self_eval is not None:
                         pair_score_collect.extend(self_eval["pair_scores"])
@@ -1615,6 +1692,8 @@ def _evaluate_coref_planner(
                 torch.tensor([t], device=device),
                 cache.documents[d], cache.event_types[t],
                 mention_values, coref_threshold,
+                cluster_method=cluster_method, temperature=temperature,
+                apply_role_splitter=apply_role_splitter,
             )
             if self_eval is None:
                 count_predictions.append(1)
@@ -1664,13 +1743,25 @@ def _evaluate_coref_pair_metrics(
     event_type: str,
     mention_values: list[str],
     coref_threshold: float,
+    *,
+    cluster_method: str = "coref",
+    temperature: float = 1.0,
+    apply_role_splitter: bool = False,
 ) -> dict[str, Any] | None:
     affinity = planner.coref_affinity(span_repr, span_role, span_sent, type_id, span_mask=span_mask)
     affinity_one = affinity[0]
     mask_one = span_mask[0]
     if not bool(mask_one.to(torch.bool).any().item()):
         return None
-    clusters = predict_clusters(affinity_one, mask_one, threshold=coref_threshold)
+    if cluster_method == "coref_v5":
+        clusters = predict_clusters_agglomerative(affinity_one, mask_one, threshold=coref_threshold, temperature=temperature)
+    else:
+        clusters = predict_clusters(affinity_one, mask_one, threshold=coref_threshold)
+    if apply_role_splitter:
+        role_tags = _compute_role_tags_per_mention(mention_values, document, event_type)
+        # use calibrated affinities so untagged mentions go to the right sub-cluster
+        affinity_for_split = affinity_one / max(float(temperature), 1e-6)
+        clusters = _apply_role_conflict_splitter(clusters, mention_values, role_tags, affinity=affinity_for_split)
     n_clusters = max(len(clusters), 1)
 
     pred_assignment: list[int | None] = [None] * len(mention_values)
@@ -1709,6 +1800,10 @@ def _tune_coref_threshold(
     train_cache: PlannerFeatureCache,
     grid: tuple[float, ...],
     device: torch.device,
+    *,
+    cluster_method: str = "coref",
+    temperature: float = 1.0,
+    apply_role_splitter: bool = False,
 ) -> tuple[float, dict[str, float]]:
     if train_cache.span_repr is None or train_cache.span_normalized_values is None:
         return 0.5, {}
@@ -1743,7 +1838,22 @@ def _tune_coref_threshold(
             if not bool(mask.to(torch.bool).any().item()):
                 pred_n = 1
             else:
-                clusters = predict_clusters(affinity, mask, threshold=float(tau))
+                if cluster_method == "coref_v5":
+                    clusters = predict_clusters_agglomerative(
+                        affinity, mask, threshold=float(tau), temperature=temperature,
+                    )
+                else:
+                    clusters = predict_clusters(affinity, mask, threshold=float(tau))
+                if apply_role_splitter and train_cache.span_normalized_values is not None:
+                    mention_values = train_cache.span_normalized_values[d]
+                    event_type = train_cache.event_types[t]
+                    role_tags = _compute_role_tags_per_mention(
+                        mention_values, train_cache.documents[d], event_type,
+                    )
+                    affinity_for_split = affinity / max(float(temperature), 1e-6)
+                    clusters = _apply_role_conflict_splitter(
+                        clusters, mention_values, role_tags, affinity=affinity_for_split,
+                    )
                 pred_n = max(len(clusters), 1)
             diff += abs(pred_n - gold_n)
             n += 1
@@ -1753,6 +1863,150 @@ def _tune_coref_threshold(
             best_mae = mae
             best_tau = float(tau)
     return best_tau, mae_by_tau
+
+
+def _calibrate_coref_temperature(
+    planner: RecordPlanner,
+    dev_cache: PlannerFeatureCache,
+    device: torch.device,
+) -> float:
+    """Fit temperature T on dev NLL: T* = argmin_T BCE(logit/T, label) over eligible pairs."""
+    if dev_cache.span_repr is None or dev_cache.span_normalized_values is None:
+        return 1.0
+    span_repr_d = dev_cache.span_repr.to(device)
+    span_sent_d = dev_cache.span_sent_idx.to(device) if dev_cache.span_sent_idx is not None else torch.zeros(span_repr_d.shape[:2], dtype=torch.long, device=device)
+    span_role_d = dev_cache.span_role_id.to(device) if dev_cache.span_role_id is not None else torch.zeros(span_repr_d.shape[:2], dtype=torch.long, device=device)
+    span_mask_d = dev_cache.span_mask.to(device) if dev_cache.span_mask is not None else torch.ones(span_repr_d.shape[:2], dtype=torch.bool, device=device)
+
+    all_logits: list[torch.Tensor] = []
+    all_labels: list[torch.Tensor] = []
+    positive_pairs = (dev_cache.counts > 0).nonzero(as_tuple=False).tolist()
+    with torch.no_grad():
+        for d, t in positive_pairs:
+            d = int(d); t = int(t)
+            event_type = dev_cache.event_types[t]
+            affinity_raw = planner.coref_affinity(
+                span_repr_d[d:d + 1], span_role_d[d:d + 1], span_sent_d[d:d + 1],
+                torch.tensor([t], dtype=torch.long, device=device),
+                span_mask=span_mask_d[d:d + 1],
+            )[0].detach().cpu()
+            labels_mat, eligible_mat, _ = build_coref_pair_labels(
+                dev_cache.span_normalized_values[d], dev_cache.documents[d], event_type,
+            )
+            M = labels_mat.shape[0]  # actual gold mention count (< max_mentions)
+            for i in range(M):
+                for j in range(i + 1, M):
+                    if not bool(eligible_mat[i, j]):
+                        continue
+                    all_logits.append(affinity_raw[i, j].unsqueeze(0))
+                    all_labels.append(torch.tensor([float(labels_mat[i, j])]))
+
+    if not all_logits:
+        return 1.0
+
+    logits_cat = torch.cat(all_logits)  # [N]
+    labels_cat = torch.cat(all_labels)  # [N]
+
+    # Optimize T via closed-form grid search (fast, avoids optimizer overhead)
+    best_T = 1.0
+    best_nll = float("inf")
+    for T_int in range(1, 101):
+        T = T_int / 20.0  # 0.05 .. 5.00
+        scaled = logits_cat / T
+        nll = float(torch.nn.functional.binary_cross_entropy_with_logits(
+            scaled, labels_cat, reduction="mean",
+        ).item())
+        if nll < best_nll:
+            best_nll = nll
+            best_T = T
+    return best_T
+
+
+def _compute_role_tags_per_mention(
+    mention_values: list[str],
+    document: DueeDocument,
+    event_type: str,
+) -> list[frozenset[str]]:
+    """For each mention, return frozenset of roles whose gold values match this mention's value.
+
+    Only inspects gold records of the given event_type. Used by the role-conflict splitter
+    in gold-mention evaluation mode (the splitter requires per-mention role tagging, which
+    is naturally available when mentions were extracted by matching against gold values).
+    """
+    nt = normalize_text(event_type)
+    relevant_records = [r for r in document.records if normalize_text(r.event_type) == nt]
+    role_value_pairs: list[tuple[str, str]] = []
+    for record in relevant_records:
+        for role, values in record.arguments.items():
+            value_list = values if isinstance(values, list) else [values]
+            for v in value_list:
+                nv = normalize_optional_text(v) if v else ""
+                if nv:
+                    role_value_pairs.append((role, nv))
+    tags: list[frozenset[str]] = []
+    for value in mention_values:
+        roles = {role for role, gv in role_value_pairs if gv == value}
+        tags.append(frozenset(roles))
+    return tags
+
+
+def _apply_role_conflict_splitter(
+    clusters: list[set[int]],
+    mention_values: list[str],
+    role_tags: list[frozenset[str]],
+    affinity: torch.Tensor | None = None,
+) -> list[set[int]]:
+    """Split clusters where any role has >1 distinct surface values among its mentions.
+
+    Algorithm per cluster:
+      1. For each role rho, collect {surface_value for m in cluster if rho in role_tags[m]}.
+      2. If no role has >1 distinct value, keep cluster unchanged.
+      3. Else pick the role with the most distinct values, partition cluster's mentions by
+         their surface value for that role. Untagged mentions are assigned to the sub-cluster
+         whose tagged members have highest mean affinity (when `affinity` is provided), else
+         to the first sub-cluster.
+    """
+    out: list[set[int]] = []
+    affinity_cpu = affinity.detach().cpu() if affinity is not None else None
+    for cluster in clusters:
+        members = sorted(cluster)
+        per_role_values: dict[str, set[str]] = defaultdict(set)
+        for m in members:
+            if 0 <= m < len(role_tags):
+                for role in role_tags[m]:
+                    per_role_values[role].add(mention_values[m])
+        conflicts = {role: vals for role, vals in per_role_values.items() if len(vals) > 1}
+        if not conflicts:
+            out.append(set(members))
+            continue
+        splitting_role = max(conflicts.keys(), key=lambda r: (len(conflicts[r]), r))
+        distinct_values = sorted(conflicts[splitting_role])
+        sub: dict[str, set[int]] = {v: set() for v in distinct_values}
+        untagged: list[int] = []
+        for m in members:
+            tags = role_tags[m] if 0 <= m < len(role_tags) else frozenset()
+            if splitting_role in tags and mention_values[m] in sub:
+                sub[mention_values[m]].add(m)
+            else:
+                untagged.append(m)
+        if untagged and distinct_values:
+            if affinity_cpu is not None:
+                for m in untagged:
+                    best_v = distinct_values[0]
+                    best_score = -float("inf")
+                    for v in distinct_values:
+                        tagged = sub[v]
+                        if not tagged:
+                            continue
+                        score = float(sum(float(affinity_cpu[m, t].item()) for t in tagged) / len(tagged))
+                        if score > best_score:
+                            best_score = score
+                            best_v = v
+                    sub[best_v].add(m)
+            else:
+                sub[distinct_values[0]] |= set(untagged)
+        out.extend(s for s in sub.values() if s)
+    return out
 
 
 def _coref_pair_diagnostics(cache: PlannerFeatureCache) -> dict[str, Any]:

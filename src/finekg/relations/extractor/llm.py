@@ -1,8 +1,9 @@
 """LoRA-fine-tuned LLM relation extractor (server / CUDA).
 
 Implements the evidence-grounded, "extract all relations for the event set at
-once" formulation (cf. LLMERE, COLING 2025) reused from the Chapter-1 stack
-(transformers + PEFT). Differences from a vanilla LLM extractor:
+once" formulation (cf. LLMERE, COLING 2025). This is the retained v3 generative
+baseline; v4 Phase A adds a separate discriminative extractor. Differences from
+a vanilla LLM extractor:
 
 - the prompt requires an `evidence_quote` for every predicted relation, and
   predictions whose quote is not found in the source text are dropped by the

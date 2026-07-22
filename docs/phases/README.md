@@ -31,7 +31,7 @@
 ## 阶段依赖图（关键路径 A→B→C→D→E）
 
 ```
-P0 数据 ✅(FACT valid 待作者) ──┐
+P0 主数据 ✅ ───────────────────┐
                                 ▼
 [A] Ch2 判别式抽取器 ──▶ [B] Ch2 一致性+修复+CRC ──┐
                                                     ▼
@@ -50,10 +50,10 @@ P0 数据 ✅(FACT valid 待作者) ──┐
 | **A** | Ch2 | 判别式 `supervised` 关系抽取器，金标节点上 causal/subevent 可用 | causal F1 ≫0.4%（目标 ~30–37） | P0 | 重 |
 | **B** | Ch2 | 全局一致解码 + 可追溯修复 + CRC 风控准入 | violation↓、分层 FNR、repair trace、ECG 可重建率↑ | A | 轻 |
 | **C** | Ch1 | 证据+不确定性规范事件节点（含论元、难例判别） | 检测 F1 ~60+、coref MUC ~86、误合并率↓ | P0 | 轻 |
-| **C2** | Ch1 | 跨文档泛化（ECB+/CLES） | 对比 SECURE/MEET/DIE-EC | C（+取数据） | 轻 |
+| **C2** | Ch1 | 跨文档泛化（ECB+/CLES） | 对比 SECURE/MEET/DIE-EC | C（ECB+ raw 已有；CLES 待取） | 轻 |
 | **D** | Ch3 | 构建图上事实性检测 + 事实性驱动图净化 | macro-F1 ≥47.6、预测图掉点量化、净化下游增益 | P0(+B) | 轻 |
-| **E** | Ch4 | 下游门控闭环修复 + 三图误差传播（headline） | repaired>predicted、误差传播曲线、下游门控接受 | A·B·D | 重 |
-| **F** | 跨章 | 端到端误差预算（union bound+可达性，标注前提） | 端到端界 + 分层 FNR、naive vs 预算对照 | B·D·E | 轻 |
+| **E** | Ch4 | 下游门控闭环修复 + 三图误差传播（headline） | repaired>predicted、误差传播曲线、下游门控接受 | A·B·C·D | 重 |
+| **F** | 跨章 | 端到端误差预算（union bound+可达性，标注前提） | 端到端界 + 分层 FNR、naive vs 预算对照 | B·C·D·E | 轻 |
 | **G** | 应用 | 金融构建→预测可迁移（CCKS-FinCausal + SARGE） | 金融案例、可迁移性 | A·B | 中 |
 | **H** | 全篇 | 多种子 13/17/42 + 消融补齐 + 投稿前新颖性扫 | 主表 mean±std、Ch2 改名定稿 | A–F | 重 |
 | **I** | — | 论文写作（非代码 phase） | 初稿 + 终辩 | 全部 | — |

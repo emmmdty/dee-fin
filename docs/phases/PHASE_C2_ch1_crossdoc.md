@@ -8,7 +8,8 @@
 
 ## 依赖 / 产物
 - 前置：**Phase C**（节点规范化模块）。
-- **数据门槛**：ECB+/CLES **尚未在库**。若为云盘/需授权下载 → **交作者手动下载**（见 `data/raw/DATA_PROVENANCE.md` 惯例）。
+- **数据门槛**：ECB+ raw 已在 WSL/4090，但尚无项目 loader/processed manifest；CLES 尚未获取。
+  Phase C 完成后先冻结对齐口径，再补 ECB+ 预处理并决定是否获取 CLES。
 - 产出：跨文档 coref 评测 + `runs/ch1_crossdoc_*.json`。
 
 ## 执行内容（Steps · 骨架）

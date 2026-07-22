@@ -1,12 +1,12 @@
-"""Serialization helpers and the adapter from Chapter-1 (SARGE) output.
+"""Serialization helpers and the financial-application SARGE adapter.
 
 All on-disk exchange uses JSON Lines. `load_event_nodes` / `dump_event_nodes`
 and the `EventGraph` (de)serializers are the canonical readers/writers; every
 data loader normalizes into these so the rest of the pipeline is format-blind.
 
-`event_nodes_from_sarge` adapts SARGE's canonical event records into
-`EventNode`s. SARGE already exports event type, role->value and evidence spans,
-so this is a field-mapping shim, not a re-parse.
+`event_nodes_from_sarge` adapts SARGE's canonical event records into `EventNode`s
+for Phase G. SARGE is not the v4 Ch1 implementation; this remains a field-mapping
+shim for the financial application and historical artifacts.
 """
 
 from __future__ import annotations

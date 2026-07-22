@@ -1,10 +1,9 @@
 #!/usr/bin/env python
-"""Adapt SARGE canonical predictions (Chapter 1 output) into Fin-EKG event-node
-records, the input to `build_event_graph.py --nodes`.
+"""Adapt SARGE financial-application predictions into Fin-EKG event-node records.
 
-Feed the output to `build_event_graph.py --nodes`, not `--from-sarge`: that flag
-re-reads the *raw* SARGE file, which has none of the evidence backfill, subject
-or time anchor derived here.
+Under v4, SARGE belongs to Phase G and does not replace Ch1. The flat records
+produced here are consumed through ``finekg.core.io.event_nodes_from_sarge`` and
+the application graph pipeline; historical raw graph artifacts remain readable.
 
 SARGE's frozen canonical format is nested and surface-only:
 

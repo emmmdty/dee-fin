@@ -13,8 +13,8 @@ authors = [{ name = "TJK" }]
 keywords = [
     "event-graph",
     "event-relation-extraction",
-    "temporal-knowledge-graph",
-    "chinese-finance",
+    "event-factuality",
+    "reliable-reasoning",
     "llm",
 ]
 
@@ -33,8 +33,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# llm = GPU stack for the neural relation extractor (server only, CUDA 12.4).
-# Pinned to the Chapter-1 (SARGE) verified stack for a frictionless transition.
+# llm = GPU stack for neural relation/succession components (server only, CUDA 12.4).
+# Pinned to the stack already verified by the retained SARGE application component.
 llm = [
     "torch==2.6.0",
     # transformers is capped below 4.54: Qwen3 support lands in 4.51, while trl
@@ -47,8 +47,8 @@ llm = [
     "bitsandbytes>=0.43",
     "datasets>=2.19,<4",
 ]
-# gnn = GPU stack for the temporal-graph forecaster (server only). PyTorch
-# Geometric is chosen over DGL for clean torch 2.6 compatibility.
+# gnn = compatibility/future graph-model stack (server only). No current v4
+# headline experiment should require it unless its phase contract says so.
 gnn = [
     "torch==2.6.0",
     "torch-geometric>=2.6",
@@ -60,7 +60,8 @@ serve = [
 # rl = GRPO post-training stack (server only). TRL 0.18.x is the release line
 # co-tested with vllm 0.8.5 / torch 2.6.0; 0.19+ targets vllm 0.9.x, hence the
 # cap. vLLM rollouts reuse the `serve` extra (`trl vllm-serve`); the `hf`
-# rollout backend needs neither. The path-RL trainer only needs torch (`gnn`).
+# rollout backend needs neither. GRPO is retained as a v3 relation baseline,
+# not the v4 headline method.
 rl = [
     "trl>=0.17,<0.19",
     "torch==2.6.0",
@@ -104,10 +105,10 @@ explicit = true
 torch = { index = "pytorch-cu124" }
 sarge = { workspace = true }
 
-# SARGE (Chapter 1) is vendored at external/sarge via git subtree and managed as a
-# uv workspace member. It is NOT a runtime dependency of finekg — the frozen contract
-# core.io.event_nodes_from_sarge consumes SARGE's canonical JSONL output. Install both
-# packages together on the server with, e.g.:
+# SARGE is vendored at external/sarge as the Phase G financial application extractor
+# and managed as a uv workspace member. It is NOT the v4 Ch1 implementation or a
+# runtime dependency of finekg; core.io.event_nodes_from_sarge consumes its JSONL output.
+# Install both packages together on the server with, e.g.:
 #   uv sync --all-packages --extra llm --extra gnn
 [tool.uv.workspace]
 members = ["external/sarge"]

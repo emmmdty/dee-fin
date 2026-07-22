@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""SARGE inference over exported news JSONL — the closed loop's first hop (D1).
+"""SARGE inference over exported news JSONL for the Phase G financial application.
 
 SARGE's own inference scripts stage datasets through per-benchmark converters
 (ChFinAnn / DuEE-Fin / DocFEE), so arbitrary news can't enter that path. This
@@ -11,8 +11,9 @@ checkpoint was trained on), and the exported news rows
 there it mirrors `external/sarge/scripts/infer_checkpoint_vllm.py`'s prefilled
 path: TrainPriorPlanner slot plans + surface memories + one big vLLM batch.
 
-Staging is idempotent (a pre-staged source dir is reused), and ``--dry-run``
-stops after staging — the CPU-testable half. GPU half (server, one card):
+This does not implement v4 Ch1 or the Phase E closed-loop controller. Staging is
+idempotent (a pre-staged source dir is reused), and ``--dry-run`` stops after
+staging — the CPU-testable half. GPU half (server, one card):
 
     CUDA_VISIBLE_DEVICES=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \\
     uv run --extra llm --extra serve python scripts/run_sarge_news_inference.py \\

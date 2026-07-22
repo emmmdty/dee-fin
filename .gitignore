@@ -21,6 +21,9 @@ htmlcov/
 data/*
 !data/fixtures/
 !data/fixtures/**
+!data/raw/
+data/raw/*
+!data/raw/DATA_PROVENANCE.md
 models/
 outputs/
 runs/

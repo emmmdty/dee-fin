@@ -1,8 +1,8 @@
 """Adaptive Conformal Inference (Gibbs & Candès, NeurIPS 2021).
 
-Online calibration for the streaming-extrapolation setting (TKG forecasting):
-the gold answer of a query is revealed once its timestamp passes, so we can feed
-realised (mis)coverage back and re-estimate the effective miscoverage level.
+Online calibration for streaming prediction. In v4 Ch4, realised successor-event
+outcomes can feed (mis)coverage back and update the effective miscoverage level;
+the same primitive remains compatible with archived timestamped TKG experiments.
 
     alpha_{t+1} = alpha_t + gamma * (alpha - err_t)
 

@@ -2,9 +2,9 @@
 
 These models are the stable interface between every stage:
 
-    event records (SARGE)            -> EventNode
+    event mentions/canonical records -> EventNode
     relation extraction & graph      -> RelationEdge / EventGraph
-    temporal reasoning & forecasting -> ForecastQuery / Prediction
+    reliable downstream reasoning    -> Prediction
 
 Downstream code depends only on these types. Methods may be swapped freely
 (heuristic baseline <-> neural) as long as they consume and produce these
@@ -53,7 +53,7 @@ class EvidenceSpan(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Nodes: an event record produced upstream (e.g. by SARGE).
+# Nodes: an event record produced upstream (e.g. MAVEN pipeline or SARGE application).
 # --------------------------------------------------------------------------- #
 class EventNode(BaseModel):
     """A single event record = one node of the event graph.
@@ -152,10 +152,10 @@ class EventGraph(BaseModel):
 # Forecasting: queries and predictions over a temporal event graph.
 # --------------------------------------------------------------------------- #
 class TemporalQuad(BaseModel):
-    """A timestamped fact (subject, relation, object, timestamp).
+    """Legacy-compatible timestamped fact (subject, relation, object, timestamp).
 
-    Used both for public TKG benchmarks (ICEWS/FinDKG entities & relations) and
-    for the self-built financial event graph (events as subject/object).
+    Retained so archived TKG experiments and old artifacts remain readable. The v4
+    headline uses CGEP event instances from ``finekg.succession`` instead.
     `timestamp` is an integer time index (days/quarters) for chronological
     ordering.
     """
@@ -171,7 +171,7 @@ class TemporalQuad(BaseModel):
 
 
 class ForecastQuery(BaseModel):
-    """A link-prediction query: complete (subject, relation, ?, timestamp).
+    """Legacy-compatible link-prediction query: (subject, relation, ?, timestamp).
 
     `gold_object` is the held-out answer for evaluation. `candidates` optionally
     restricts the answer space (else the full entity vocabulary is ranked).

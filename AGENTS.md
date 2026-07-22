@@ -3,6 +3,8 @@
 > **`CLAUDE.md` 与 `AGENTS.md` 内容保持一致**（Claude Code 读 `CLAUDE.md`，Codex 读 `AGENTS.md`）。
 > **改一份必须同步另一份。** 设计总纲 → `docs/SPEC.md`｜实时状态 → `docs/TODO.md`｜工程坑 →
 > `docs/ENGINEERING_NOTES.md`｜服务器运维 → `docs/GPU_RUNBOOK.md`。
+> **当前唯一研究主线是 v4 四章（身份 → 结构 → 事实 → 传播/下游）**；SARGE 属金融应用层，
+> 旧 TKG 线只在 tag `frozen-tkg-line` 保留。出现冲突时以 `docs/SPEC.md` 为准。
 
 ## 校验命令（改代码后必跑）
 

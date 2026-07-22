@@ -3,9 +3,9 @@
 
 Turns each document into a supervised example: the all-pairs extraction prompt
 as input, the gold relations (as the JSON the parser expects) as target. Trains
-a LoRA adapter on a Qwen-style base model, reusing the Chapter-1 stack
-(transformers + PEFT). The resulting adapter dir goes into the `adapter_path`
-of `configs/relations/llm_grounded_consistent.yaml`.
+a LoRA adapter on a Qwen-style base model. This is the retained v3 generative
+baseline, not the v4 Phase A discriminative extractor. The resulting adapter
+directory goes into `configs/relations/llm_grounded_consistent.yaml`.
 
 GPU + the `llm` extra required:
     uv run --extra llm python scripts/train_relation_extractor.py \

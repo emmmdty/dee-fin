@@ -6,9 +6,9 @@ each sample is its reward standardized within the group:
     A_i = (r_i - mean(group)) / max(std(group), std_floor)
 
 This replaces a learned critic with a Monte-Carlo group baseline — the core
-trick of GRPO — and is shared verbatim by the relation-extraction GRPO stage
-(groups = completions of one prompt) and the path-RL trainer (groups =
-trajectories of one query). Pure function, exactly unit-testable on CPU.
+trick of GRPO. The current consumer is the retained relation-extraction baseline;
+the old path-RL consumer exists only on tag ``frozen-tkg-line``. Pure function,
+exactly unit-testable on CPU.
 """
 
 from __future__ import annotations

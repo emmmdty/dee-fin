@@ -1,8 +1,8 @@
 """M3a: the selective conformal head over CGEP (the reasoning-stage predictor).
 
 Turns a `SuccessorPredictor`'s candidate scores into a conformal *prediction set*
-with a coverage guarantee and traces the risk-coverage curve -- the Ch3 headline
-formal contribution, which holds whether or not the point-prediction MRR improves.
+with a coverage guarantee and traces the risk-coverage curve. Under v4 it is a
+Ch4 reliability module, which holds whether or not point-prediction MRR improves.
 
 The bridge is small on purpose. `core.calibration.propagation.run_cross_stage`
 already streams a conformal calibrator (split / ACI / ...) over per-query gold

@@ -6,9 +6,9 @@ telescope — with gamma = 1 the undiscounted sum is exactly
 Phi(s_T) - Phi(s_0), independent of the path taken — shaping changes the
 *learning signal*, never the optimal policy.
 
-The potential Phi itself is domain-specific (the path-RL stage uses a
-recency-frequency score of the current entity); this module only owns the
-policy-invariant difference form.
+The potential Phi itself is domain-specific. This generic primitive is retained
+for future v4 reward shaping and archived path-RL reproducibility; it only owns
+the policy-invariant difference form.
 """
 
 from __future__ import annotations

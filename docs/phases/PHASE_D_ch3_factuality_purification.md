@@ -9,8 +9,8 @@
 并接下游后继预测（Phase E）。
 
 ## 依赖 / 产物
-- 前置：P0（`data/raw/maven_fact/train.jsonl` 已下；**`valid.jsonl` 待作者手动下载**，见 `data/raw/DATA_PROVENANCE.md`）。
-  评测阶段需 valid；开发可先用 train。可选：Phase B 的预测图（做鲁棒性对比）。
+- 前置：P0（`data/raw/maven_fact/{train,valid}.jsonl` 已在 WSL/4090 并完成 provenance 核验）。
+  可选：Phase B 的预测图（做鲁棒性对比）。
 - 产出：MAVEN-FACT 加载器 + 事实性检测器 + 净化算子 + `runs/ch3_factuality_*.json`。
 
 ## Context（复用 / 新建）
@@ -38,7 +38,7 @@
 轻（小模型 fine-tune）。
 
 ## 数据门槛
-评测需 MAVEN-FACT `valid.jsonl`（作者手动下载后再跑评测行）；train 已在库可先开发+train 内切验证。
+MAVEN-FACT train/valid 已就位；官方 test 不公开。开发和选择模型只使用 train，最终本地报告使用 valid。
 
 ## 达不到怎么办（止损）
 净化收益小 → 退"事实性检测 + 预测图鲁棒性分析"仍成独立章。

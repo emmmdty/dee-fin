@@ -1,8 +1,9 @@
-"""Ranking metrics for temporal link prediction: MRR and Hits@k.
+"""Legacy-compatible temporal link-prediction metrics: MRR and Hits@k.
 
 Given gold answers and ranked candidate lists (one per query), compute Mean
 Reciprocal Rank and Hits@k — the standard TKG-forecasting metrics used by
-ICEWS / FinDKG. Queries whose gold answer is absent from the ranking count as
+ICEWS / FinDKG. They are retained for archived TKG artifacts; v4 CGEP metrics live
+in ``finekg.succession.metrics``. Queries whose gold answer is absent count as
 rank = infinity (reciprocal rank 0), matching the conventional "raw" setting.
 """
 

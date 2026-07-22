@@ -1,9 +1,8 @@
 """Successor-event predictors: rank a candidate set for one anchor event.
 
-Deliberately not `finekg.forecasting.Forecaster`, whose contract is
-`predict(query, history: list[TemporalQuad])` -- an entity-centric temporal quad
-`(subject, relation, ?, t)`. CGEP ranks *events* out of an explicit candidate
-set given a graph, and squeezing it into quads would misstate the task.
+Deliberately separate from the legacy entity-centric ``TemporalQuad`` contract.
+CGEP ranks *events* out of an explicit candidate set given a graph, and squeezing
+it into temporal quads would misstate the v4 Ch4 task.
 
 `evaluate` reports the optimistic (SeDGPL) and strict rankings side by side. The
 gap between them is the share of the score that duplicate triggers hand over for

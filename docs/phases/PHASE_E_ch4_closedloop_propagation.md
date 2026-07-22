@@ -9,13 +9,13 @@
 ② **gold / predicted / repaired 三图误差传播**：量化哪类 node/edge/factuality error 最破坏 reachability、修复的下游增益。
 
 ## 依赖 / 产物
-- 前置：**Phase A·B**（真实 predicted/repaired 图）、**Phase D**（事实性信号）。A/B 未达标 → 退**受控扰动版**。
+- 前置：**Phase A·B**（真实预测输入）、**Phase C**（构图/约束修复）、**Phase D**（事实性信号）。A/B 未达标 → 退**受控扰动版**。
 - 产出：闭环控制器 + 三图对比 + `runs/cgep/ch4_closedloop_*.json`、误差传播曲线。
 
 ## Context（复用 / 新建）
 - **复用（大部分已建）**：`succession/`（`sedgpl.py`/`model.py`/`encode.py`/`linearize.py`/`selective.py`/`structure.py`/
   `predictor.py`/`metrics.py`）；`succession/cross_stage.py`（`induce_reachability:38`、`cross_stage_sweep:64`）；
-  `agents/protocol.py`（`Blackboard`/`Orchestrator`/`agent_roles`——目前**单遍前馈**）+ `relations/agents/`/`forecasting/agents/`；
+  `agents/protocol.py`（`Blackboard`/`Orchestrator`/`agent_roles`——目前**单遍前馈**）+ `relations/agents/`；
   `core/calibration/propagation.py`；`scripts/evaluate_cgep*.py`、`build_cgep.py`。
 - **新建**：闭环控制器（回灌边 + 终止判据 + **下游目标门控接受**）；`cross_stage.py` 补 **3 类真实扰动生成器**
   （删/增因果边、并/拆节点、扰乱时序——现仅 reachability 掩码）。
@@ -39,5 +39,6 @@
 重（SeDGPL 训练/推理；闭环 LLM 可走 API 不占训练）。选卡前 `nvidia-smi`，优先 card 1。
 
 ## 达不到怎么办（止损）
-真实图不可得（A/B 未达标）→ 退**受控扰动版**（`cross_stage.py` 已半实现），仍答"构建误差如何影响下游"；
+真实图不可得（A/B 未达标）→ 退**受控扰动版**（`cross_stage.py` 已实现 reachability 扫描，仍缺三类
+真实扰动），回答“构建误差如何影响下游”；
 闭环增益微弱 → 退一致性重排 + 误差传播分析，不硬撑"闭环有效"。

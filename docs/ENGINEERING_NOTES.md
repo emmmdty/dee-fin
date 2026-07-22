@@ -15,9 +15,12 @@
 
 ## 数据
 
+- **v4 主数据状态以 `DATASET_SURVEY.md` + `data/raw/DATA_PROVENANCE.md` 为准**。MAVEN-FACT
+  train/valid 已就位；MATRES/RAMS/WikiEvents/ECB+ 目前只有 raw，未生成项目 processed 输出。
 - **MAVEN 版 SeDGPL 数据未发布**（只发 `ESCSubWoRe.npy`）→ 论文 CGEP-MAVEN **27.9 不可比**；主表以自跑 SeDGPL 为准。
 - **ESC 必须 topic 交叉验证**；文档级切分泄漏同 topic 故事（SeDGPL 公开 19.6 就是泄漏值）。
-- **ICEWS14 已验证=正版 TiRGN，勿重切**；ICEWS 一律用 timestamps **计数切分**。
+- **ICEWS/FinDKG 只属冻结 TKG 线**；从 tag 复现时保持 release split，ICEWS 用 timestamps
+  **计数切分**，结果不得混入 v4 主表。
 - **CGEP 词表须 transductive**（覆盖 train+test 的 `<a_i>` token；否则测试全编码失败）。只 token 清单跨切分，无标签/图/梯度泄漏。
 - **MAVEN 触发词粘标点（`died.`）/ 大小写不一（`revolution`）** → `token_span` 加「标点+大小写」两级兜底；ESC 有不连续 mention（`keep a hold on`）→ 复刻 `doCorrect` 加宽为连续 span。
 - **外部 pickle `ESCSubWoRe.npy` 必须用 `succession.data.esc.load_npy_object` 白名单加载**（安全）。
@@ -36,7 +39,9 @@
 
 ## 纪律（硬约束）
 
-- 本地 `uv run pytest` = **330 passed / 14 skipped**（M2 后；torch 门控测试本地 skip、服务器跑），**只增不改**；`uv run ruff check src tests scripts` **0 error（≤100 列）**。
+- 2026-07-22 当前主干：本地 `uv run pytest` = **239 passed / 11 skipped**（skip 均为本地无 torch 的
+  神经门控测试）；`uv run ruff check src tests scripts` **0 error（≤100 列）**；`finekg-smoke` 通过。
+  历史测试计数随旧 TKG 线移出主干而变化，不得拿旧计数判断当前回归。
 - 包/函数名**不得含 `ch1/ch2/ch3`**；新组件走 registry + lazy import；GPU 组件配 CPU 缓存回放。
 - **`EventNode` schema 零新增字段**（扩展用 `metadata`）；`CgepNode` 可加字段。
 - 不可改的测试锁：`tests/core/test_propagation.py`。

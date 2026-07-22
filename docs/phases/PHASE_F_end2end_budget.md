@@ -8,7 +8,7 @@
 前提，不作无条件 distribution-free 保证。**
 
 ## 依赖 / 产物
-- 前置：**Phase B·D·E**。
+- 前置：**Phase B·C·D·E**（节点预算来自 C）。
 - 产出：端到端预算实验 + `runs/cgep/end2end_budget_*.json`。
 
 ## Context（复用）

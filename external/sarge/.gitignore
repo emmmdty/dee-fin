@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual env
+.venv/
+venv/
+
+# Secrets / local env
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Project artifacts (large, server-only)
+/runs/
+/logs/
+/backup/
+/checkpoints/
+/intermediate/
+/predictions/
+
+# OS
+.DS_Store
+*:Zone.Identifier
+
+# Materialized large assets
+/data/
+/models/
+
+# Paper evidence snapshots are small, curated JSON artifacts even though they
+# live under a path segment named "data".
+!paper/exp/data/
+!paper/exp/data/**
+paper/exp/data/run_snapshots/**/intermediate/
+paper/exp/data/run_snapshots/**/predictions/
+paper/exp/data/run_snapshots/**/checkpoints/
+paper/exp/data/run_snapshots/**/artifacts/model/
+paper/exp/data/run_snapshots/**/artifacts/trainer_state/
+paper/exp/data/run_snapshots/**/*.jsonl
+paper/exp/data/run_snapshots/**/*.log

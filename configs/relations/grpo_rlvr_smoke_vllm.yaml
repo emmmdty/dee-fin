@@ -1,0 +1,51 @@
+# W3-4 coupling smoke: GRPO-RLVR over the *real* TRL<->vLLM rollout path.
+# The sibling `grpo_rlvr_smoke.yaml` uses the `hf` backend and therefore only
+# exercises the reward/training loop — it never touches vLLM. THIS config is
+# the one that verifies the coupling the W3-4 gate is about: vLLM rollout +
+# LoRA weight broadcast to the rollout worker each step (docs/archive/RL_DESIGN.md §6,
+# docs/SERVER_W3-4_RUNBOOK.md). Single-card `colocate` so it needs no second
+# GPU and no `trl vllm-serve` process. Fresh LoRA => self-contained (no SFT
+# dependency). NOT a research config.
+relations_rl:
+  base_model: Qwen/Qwen3-4B-Instruct-2507
+  sft_adapter_path: null            # fresh LoRA: smoke is self-contained
+  lora:
+    r: 8
+    alpha: 16
+    dropout: 0.05
+    target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+  rewards:
+    - {name: format, weight: 0.1}
+    - {name: grounding, weight: 0.3, kwargs: {max_quote_chars: 60}}
+    - {name: consistency, weight: 0.2}
+    - {name: task_f1, weight: 0.4}
+
+  curriculum:
+    window_events: 8
+    phases:
+      - {max_difficulty: 8, steps: 50}   # ~50-step coupling smoke
+
+  grpo:
+    num_generations: 4
+    per_device_train_batch_size: 4
+    gradient_accumulation_steps: 1
+    learning_rate: 1.0e-5
+    beta: 0.01                        # keep the KL ref forward in the smoke too
+    epsilon: 0.2
+    temperature: 0.9
+    top_p: 0.95
+    max_prompt_length: 1024
+    max_completion_length: 384        # trimmed for single-card colocate
+    bf16: true
+    gradient_checkpointing: true
+    max_grad_norm: 0.5
+    seed: 42
+
+  rollout:
+    backend: vllm_colocate            # vLLM shares the training GPU (single card)
+    vllm_gpu_memory_utilization: 0.3  # leave room for bf16 weights + grad-ckpt activations
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/train_smoke.jsonl

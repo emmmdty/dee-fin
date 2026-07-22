@@ -1,0 +1,17 @@
+# Relation stage — main method: evidence-grounded LLM extractor + global
+# consistency. Requires the `llm` extra and a GPU (server).
+relations:
+  extractor: llm
+  extractor_kwargs:
+    model_name: Qwen/Qwen3-4B-Instruct-2507
+    adapter_path: null            # set to a trained LoRA adapter dir after training
+    max_new_tokens: 1024
+    device: cuda
+  require_evidence: true          # drop fabricated / ungrounded relations
+  consistency: greedy
+  consistency_kwargs:
+    close_temporal: true
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/valid.jsonl

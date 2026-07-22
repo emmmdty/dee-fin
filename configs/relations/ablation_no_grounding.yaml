@@ -1,0 +1,17 @@
+# Ablation: disable evidence grounding (keep ungrounded relations).
+# Isolates the contribution of the anti-fabrication grounding stage.
+relations:
+  extractor: llm
+  extractor_kwargs:
+    model_name: Qwen/Qwen3-4B-Instruct-2507
+    adapter_path: null
+    max_new_tokens: 1024
+    device: cuda
+  require_evidence: false         # <-- grounding off
+  consistency: greedy
+  consistency_kwargs:
+    close_temporal: true
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/valid.jsonl

@@ -1,0 +1,16 @@
+# Relations — ablation: no risk-controlled admission (admit every proposed edge).
+# Isolates the contribution of CRC edge admission (crc_edge_admission.yaml): same
+# graph builder, but `admission.method: none` keeps all edges, so the recall
+# guarantee and precision lift can be attributed to admission alone. CPU.
+relations:
+  extractor: heuristic
+  use_verifier: true
+  verifier_kwargs: {threshold: 0.5}
+  consistency: greedy
+  consistency_kwargs: {close_temporal: true}
+  admission:
+    method: none
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/dev.jsonl

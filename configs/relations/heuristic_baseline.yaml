@@ -1,0 +1,13 @@
+# Relation stage — torch-free heuristic baseline (CPU). Lower-bound reference.
+relations:
+  extractor: heuristic
+  extractor_kwargs:
+    coref_overlap_threshold: 0.6
+  require_evidence: true
+  consistency: greedy
+  consistency_kwargs:
+    close_temporal: true
+
+data:
+  loader: maven_ere            # maven_ere | ccks_causal
+  path: data/processed/maven_ere/valid.jsonl

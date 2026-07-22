@@ -1,0 +1,15 @@
+# Ablation: disable the global consistency solver (identity = no-op).
+# Isolates the contribution of transitivity/acyclicity repair.
+relations:
+  extractor: llm
+  extractor_kwargs:
+    model_name: Qwen/Qwen3-4B-Instruct-2507
+    adapter_path: null
+    max_new_tokens: 1024
+    device: cuda
+  require_evidence: true
+  consistency: identity           # <-- consistency off
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/valid.jsonl

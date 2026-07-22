@@ -1,0 +1,2 @@
+{"text_id": "t1", "text": "由于钢材价格上涨，建筑行业成本上升，相关公司利润下滑。", "causal_pairs": [{"cause": {"type": "价格上涨", "product": "钢材", "region": "", "industry": "钢铁"}, "effect": {"type": "成本上升", "product": "", "region": "", "industry": "建筑"}, "cause_span": [2, 8], "effect_span": [9, 16]}]}
+{"text_id": "t2", "text": "受疫情影响，航空业客流量大幅减少，多家航空公司亏损扩大。", "causal_pairs": [{"cause": {"type": "突发事件", "product": "", "region": "", "industry": "公共卫生"}, "effect": {"type": "需求下降", "product": "客运", "region": "", "industry": "航空"}, "cause_span": [0, 5], "effect_span": [6, 16]}]}

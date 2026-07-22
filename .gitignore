@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Environments
+.venv/
+.env
+
+# Local agent/tooling state
+.agents/
+.codex/
+.serena/
+
+# Data & models (kept out of git; fixtures/ are the exception below)
+data/*
+!data/fixtures/
+!data/fixtures/**
+models/
+outputs/
+runs/
+*.ckpt
+*.safetensors
+
+# Generated reports / presentation artifacts (archived binaries kept out of git)
+docs/archive/projects/
+docs/archive/midterm/data/
+docs/archive/midterm/figures/
+docs/archive/midterm/**/__pycache__/
+*.docx
+*.pdf
+*.pptx
+
+# OS / editor
+.DS_Store
+*.swp
+*.Identifier

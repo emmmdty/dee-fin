@@ -1,0 +1,54 @@
+# Relation stage — GRPO post-training with the composite verifiable reward
+# (verifier-as-reward; docs/archive/RL_DESIGN.md §2). Main method.
+# Requires the `llm` + `rl` extras and a GPU. The default rollout backend
+# expects `trl vllm-serve` on a second GPU:
+#   CUDA_VISIBLE_DEVICES=0 uv run --extra serve --extra rl trl vllm-serve \
+#       --model Qwen/Qwen3-4B-Instruct-2507
+#   CUDA_VISIBLE_DEVICES=1 uv run --extra llm --extra rl \
+#       python scripts/train_relation_grpo.py --config configs/relations/grpo_rlvr.yaml \
+#       --output runs/relation_grpo
+relations_rl:
+  base_model: Qwen/Qwen3-4B-Instruct-2507
+  sft_adapter_path: runs/relation_extractor_lora   # warm-start from SFT; null = fresh LoRA
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+  rewards:                          # delete a line = ablate that component
+    - {name: format, weight: 0.1}
+    - {name: grounding, weight: 0.3, kwargs: {max_quote_chars: 60}}
+    - {name: consistency, weight: 0.2}
+    - {name: task_f1, weight: 0.4}
+
+  curriculum:                       # difficulty = events per window prompt
+    window_events: 24
+    phases:
+      - {max_difficulty: 6, steps: 200}
+      - {max_difficulty: 12, steps: 300}
+      - {max_difficulty: 24, steps: 300}
+
+  grpo:                             # forwarded to TRL GRPOConfig (unknown knobs dropped)
+    num_generations: 8              # single-card fallback: drop to 4
+    per_device_train_batch_size: 4
+    gradient_accumulation_steps: 16
+    learning_rate: 1.0e-5
+    beta: 0.01                      # KL anchor to the SFT reference
+    epsilon: 0.2
+    temperature: 0.9
+    top_p: 0.95
+    max_prompt_length: 1536
+    max_completion_length: 768      # single-card fallback: 512
+    bf16: true
+    gradient_checkpointing: true
+    max_grad_norm: 0.5
+    seed: 42                        # report mean±std over seeds 13 / 17 / 42
+
+  rollout:
+    backend: vllm_server            # vllm_server | vllm_colocate | hf (always works)
+    vllm_server_port: 8000
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/train.jsonl

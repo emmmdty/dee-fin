@@ -1,0 +1,17 @@
+# subject	relation	object	timestamp
+CompanyA	INVESTS_IN	SectorTech	0
+CompanyB	ACQUIRES	CompanyC	0
+CompanyA	INVESTS_IN	SectorTech	1
+CentralBank	RAISES	InterestRate	1
+CompanyA	INVESTS_IN	SectorTech	2
+CompanyB	ACQUIRES	CompanyD	2
+CentralBank	RAISES	InterestRate	3
+CompanyA	INVESTS_IN	SectorTech	3
+CompanyB	ACQUIRES	CompanyE	4
+CentralBank	RAISES	InterestRate	4
+CompanyA	INVESTS_IN	SectorTech	5
+CentralBank	RAISES	InterestRate	5
+CompanyA	INVESTS_IN	SectorTech	6
+CompanyB	ACQUIRES	CompanyF	6
+CentralBank	RAISES	InterestRate	7
+CompanyA	INVESTS_IN	SectorTech	7

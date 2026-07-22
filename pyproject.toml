@@ -1,0 +1,139 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "finekg"
+version = "0.1.0"
+description = "Verifiable event graph construction and successor-event reasoning (CGEP)"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+license = { text = "MIT" }
+authors = [{ name = "TJK" }]
+keywords = [
+    "event-graph",
+    "event-relation-extraction",
+    "temporal-knowledge-graph",
+    "chinese-finance",
+    "llm",
+]
+
+# ---------------------------------------------------------------------------
+# core = CPU-only contracts, metrics, graph algorithms, heuristic baselines.
+# Everything here installs and runs locally WITHOUT a GPU or torch.
+# ---------------------------------------------------------------------------
+dependencies = [
+    "numpy>=1.26,<2.0",
+    "networkx>=3.2",
+    "scikit-learn>=1.4",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "PyYAML>=6.0.1",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+# llm = GPU stack for the neural relation extractor (server only, CUDA 12.4).
+# Pinned to the Chapter-1 (SARGE) verified stack for a frictionless transition.
+llm = [
+    "torch==2.6.0",
+    # transformers is capped below 4.54: Qwen3 support lands in 4.51, while trl
+    # 0.18.x / peft expect the 4.5x line. transformers 5.x removes symbols peft
+    # imports (e.g. BloomPreTrainedModel), so an unpinned `<6` resolves to a
+    # broken combo on the server.
+    "transformers>=4.51,<4.54",
+    "peft>=0.11,<0.16",
+    "accelerate>=0.33,<1.6",
+    "bitsandbytes>=0.43",
+    "datasets>=2.19,<4",
+]
+# gnn = GPU stack for the temporal-graph forecaster (server only). PyTorch
+# Geometric is chosen over DGL for clean torch 2.6 compatibility.
+gnn = [
+    "torch==2.6.0",
+    "torch-geometric>=2.6",
+]
+# serve = high-throughput inference backend (server only), matching SARGE.
+serve = [
+    "vllm==0.8.5",
+]
+# rl = GRPO post-training stack (server only). TRL 0.18.x is the release line
+# co-tested with vllm 0.8.5 / torch 2.6.0; 0.19+ targets vllm 0.9.x, hence the
+# cap. vLLM rollouts reuse the `serve` extra (`trl vllm-serve`); the `hf`
+# rollout backend needs neither. The path-RL trainer only needs torch (`gnn`).
+rl = [
+    "trl>=0.17,<0.19",
+    "torch==2.6.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    # used by docs/midterm/report/build_midterm_report.py (and its test); declared
+    # so an exact `uv sync` keeps the suite self-contained (CPU-only).
+    "python-docx>=1.1",
+]
+
+[project.scripts]
+finekg-smoke = "finekg.cli:run_smoke"
+
+# ---------------------------------------------------------------------------
+# uv configuration
+# ---------------------------------------------------------------------------
+[tool.uv]
+# Local dev installs only `core + dev` (no torch). On the server run:
+#   uv sync --extra llm --extra gnn --extra serve
+default-groups = []
+
+# Default index = Tsinghua TUNA mirror (fast/reliable in CN). Override per-machine
+# with UV_DEFAULT_INDEX if needed.
+[[tool.uv.index]]
+name = "tuna"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+# torch + cu124 wheels come from the official PyTorch index. This index is
+# `explicit`, so it is consulted ONLY for the packages mapped below — a plain
+# local `uv sync` never touches it. Mirror override documented in docs/SETUP.md.
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+sarge = { workspace = true }
+
+# SARGE (Chapter 1) is vendored at external/sarge via git subtree and managed as a
+# uv workspace member. It is NOT a runtime dependency of finekg — the frozen contract
+# core.io.event_nodes_from_sarge consumes SARGE's canonical JSONL output. Install both
+# packages together on the server with, e.g.:
+#   uv sync --all-packages --extra llm --extra gnn
+[tool.uv.workspace]
+members = ["external/sarge"]
+
+# ---------------------------------------------------------------------------
+# tooling
+# ---------------------------------------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = ["src/finekg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra -q --import-mode=importlib"
+markers = [
+    "gpu: tests that require torch / a CUDA device (skipped locally)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+extend-exclude = [
+    "data/raw",
+    "docs/midterm",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

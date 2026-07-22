@@ -1,0 +1,19 @@
+# Relation stage baseline — a single extractor pass with no verifier and no
+# committee (the vanilla single-LLM extractor the multi-agent method is compared
+# against). Consistency repair is kept so a graph is still produced.
+relations:
+  mode: multi_agent
+  extractor: heuristic
+  extractor_kwargs:
+    coref_overlap_threshold: 0.6
+  proposers:
+    - {role: single, relation_types: [coreference, temporal, causal, subevent]}
+  use_verifier: false
+  consistency: greedy
+  consistency_kwargs:
+    close_temporal: true
+  debate_rounds: 1
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/valid.jsonl

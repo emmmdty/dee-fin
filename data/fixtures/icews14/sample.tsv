@@ -1,0 +1,16 @@
+# subject	relation	object	timestamp
+USA	Consult	China	0
+France	Visit	Germany	0
+USA	Consult	China	1
+Russia	Threaten	Ukraine	1
+USA	Consult	China	2
+France	Visit	Germany	2
+Russia	Threaten	Ukraine	3
+USA	Consult	China	3
+France	Visit	Germany	4
+Russia	Threaten	Ukraine	4
+USA	Consult	China	5
+France	Visit	Germany	6
+USA	Consult	China	6
+Russia	Threaten	Ukraine	7
+USA	Consult	China	7

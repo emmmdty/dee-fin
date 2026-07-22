@@ -1,0 +1,59 @@
+# W3-4 deliverable: easy-bucket small-scale GRPO-RLVR (docs/archive/RL_DESIGN.md §7,
+# docs/SERVER_W3-4_RUNBOOK.md). This is the *real* (not smoke) training whose
+# reward curves the W3-4 exit criteria read: the four reward components must
+# move together (no single component collapsing while the total climbs) and
+# the resulting adapter's F1 must be >= the SFT baseline.
+#
+# It is exactly phase-0 of the full `grpo_rlvr.yaml` curriculum (difficulty<=6)
+# run standalone for fewer steps, warm-started from the SFT LoRA. Launch with
+# the two-card vLLM-server rollout:
+#   CUDA_VISIBLE_DEVICES=0 uv run --extra serve --extra rl trl vllm-serve \
+#       --model Qwen/Qwen3-4B-Instruct-2507
+#   CUDA_VISIBLE_DEVICES=1 uv run --extra llm --extra rl \
+#       python scripts/train_relation_grpo.py \
+#       --config configs/relations/grpo_rlvr_easy.yaml --output runs/relation_grpo_easy
+# Single-card fallback: set rollout.backend=vllm_colocate, num_generations=4,
+# max_completion_length=512.
+relations_rl:
+  base_model: Qwen/Qwen3-4B-Instruct-2507
+  sft_adapter_path: runs/relation_extractor_lora   # warm-start from SFT; null = fresh LoRA
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+  rewards:                          # delete a line = ablate that component
+    - {name: format, weight: 0.1}
+    - {name: grounding, weight: 0.3, kwargs: {max_quote_chars: 60}}
+    - {name: consistency, weight: 0.2}
+    - {name: task_f1, weight: 0.4}
+
+  curriculum:                       # difficulty = events per window prompt
+    window_events: 24
+    phases:
+      - {max_difficulty: 6, steps: 150}   # easy bucket only, small scale
+
+  grpo:                             # forwarded to TRL GRPOConfig (unknown knobs dropped)
+    num_generations: 8              # single-card fallback: drop to 4
+    per_device_train_batch_size: 4
+    gradient_accumulation_steps: 16
+    learning_rate: 1.0e-5
+    beta: 0.01                      # KL anchor to the SFT reference
+    epsilon: 0.2
+    temperature: 0.9
+    top_p: 0.95
+    max_prompt_length: 1536
+    max_completion_length: 768      # single-card fallback: 512
+    bf16: true
+    gradient_checkpointing: true
+    max_grad_norm: 0.5
+    seed: 42                        # W3-4 uses one seed; full run reports 13/17/42
+
+  rollout:
+    backend: vllm_server            # vllm_server | vllm_colocate | hf (always works)
+    vllm_server_port: 8000
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/train.jsonl

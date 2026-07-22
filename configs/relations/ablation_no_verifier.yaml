@@ -1,0 +1,21 @@
+# Relation stage ablation — multi-agent WITHOUT the grounding/faithfulness
+# verifier: proposers feed the consistency arbiter directly. Isolates the
+# verifier's contribution (faithfulness scoring + abstention) by removing it.
+relations:
+  mode: multi_agent
+  extractor: heuristic
+  extractor_kwargs:
+    coref_overlap_threshold: 0.6
+  proposers:
+    - {role: coref, relation_types: [coreference]}
+    - {role: temporal, relation_types: [temporal]}
+    - {role: causal, relation_types: [causal, subevent]}
+  use_verifier: false
+  consistency: greedy
+  consistency_kwargs:
+    close_temporal: true
+  debate_rounds: 1
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/valid.jsonl

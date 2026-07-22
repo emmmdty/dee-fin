@@ -1,0 +1,16 @@
+# Relation stage for the corpus-scale Astock news graph (15623 nodes, 980 dates).
+#
+# `temporal_scope: subject` is now the default; it stays spelled out here because
+# it is load-bearing. The `corpus` scope chains date groups across every company,
+# which on this graph emits 331k BEFORE edges that are 99.93% cross-company date
+# adjacency, and whose transitive closure is ~1.2e8 edges (OOM). Chaining inside
+# each company's timeline is what a BEFORE edge is supposed to assert.
+relations:
+  extractor: heuristic
+  extractor_kwargs:
+    coref_overlap_threshold: 0.6
+    temporal_scope: subject
+  require_evidence: true
+  consistency: greedy
+  consistency_kwargs:
+    close_temporal: true

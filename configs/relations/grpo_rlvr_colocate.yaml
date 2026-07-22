@@ -1,0 +1,51 @@
+# Relation GRPO-RLVR — single-card colocate variant of grpo_rlvr.yaml.
+# Used when the 2-card vllm_server path is unavailable (here: a faulted GPU on the
+# box breaks NCCL's NVML topology enumeration, so cross-process weight-sync can't
+# init). colocate runs vLLM inside the trainer process at TP=1 -> no cross-process
+# NCCL at all. vLLM's max_model_len auto-caps to max_prompt+max_completion (TRL),
+# so no KV-cache blowup. Same reward/curriculum/grpo knobs as the main config.
+relations_rl:
+  base_model: Qwen/Qwen3-4B-Instruct-2507
+  sft_adapter_path: runs/relation_extractor_lora
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+  rewards:
+    - {name: format, weight: 0.1}
+    - {name: grounding, weight: 0.3, kwargs: {max_quote_chars: 60}}
+    - {name: consistency, weight: 0.2}
+    - {name: task_f1, weight: 0.4}
+
+  curriculum:
+    window_events: 24
+    phases:
+      - {max_difficulty: 6, steps: 200}
+      - {max_difficulty: 12, steps: 300}
+      - {max_difficulty: 24, steps: 300}
+
+  grpo:
+    num_generations: 8
+    per_device_train_batch_size: 4
+    gradient_accumulation_steps: 16
+    learning_rate: 1.0e-5
+    beta: 0.01
+    epsilon: 0.2
+    temperature: 0.9
+    top_p: 0.95
+    max_prompt_length: 1536
+    max_completion_length: 768
+    bf16: true
+    gradient_checkpointing: true
+    max_grad_norm: 0.5
+    seed: 42
+
+  rollout:
+    backend: vllm_colocate            # vLLM in-process, TP=1, no cross-process NCCL
+    vllm_gpu_memory_utilization: 0.80  # vLLM budget counts the resident policy too; 0.8 leaves ~6GB for training activations
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/train.jsonl

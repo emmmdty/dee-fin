@@ -1,0 +1,47 @@
+# Ablation: GRPO without the evidence-grounding reward (−R_ground).
+# Tests whether verifier-as-reward's grounding component, not just task F1,
+# drives the anti-fabrication gains. Otherwise identical to grpo_rlvr.yaml.
+relations_rl:
+  base_model: Qwen/Qwen3-4B-Instruct-2507
+  sft_adapter_path: runs/relation_extractor_lora
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+  rewards:                          # grounding deleted; weights otherwise unchanged
+    - {name: format, weight: 0.1}
+    - {name: consistency, weight: 0.2}
+    - {name: task_f1, weight: 0.4}
+
+  curriculum:
+    window_events: 24
+    phases:
+      - {max_difficulty: 6, steps: 200}
+      - {max_difficulty: 12, steps: 300}
+      - {max_difficulty: 24, steps: 300}
+
+  grpo:
+    num_generations: 8
+    per_device_train_batch_size: 4
+    gradient_accumulation_steps: 16
+    learning_rate: 1.0e-5
+    beta: 0.01
+    epsilon: 0.2
+    temperature: 0.9
+    top_p: 0.95
+    max_prompt_length: 1536
+    max_completion_length: 768
+    bf16: true
+    gradient_checkpointing: true
+    max_grad_norm: 0.5
+    seed: 42
+
+  rollout:
+    backend: vllm_server
+    vllm_server_port: 8000
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/train.jsonl

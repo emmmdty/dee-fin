@@ -1,0 +1,25 @@
+# Relation stage — main method: multi-agent, evidence-grounded graph construction.
+# A proposer committee (coref / temporal / causal) -> grounding-verifier
+# (per-edge faithfulness + abstention) -> consistency-arbiter. The CPU stub backs
+# onto the heuristic extractor; set `extractor: llm` on the server to swap in the
+# LoRA relation model behind the same orchestration.
+relations:
+  mode: multi_agent
+  extractor: heuristic
+  extractor_kwargs:
+    coref_overlap_threshold: 0.6
+  proposers:
+    - {role: coref, relation_types: [coreference]}
+    - {role: temporal, relation_types: [temporal]}
+    - {role: causal, relation_types: [causal, subevent]}
+  use_verifier: true
+  verifier_kwargs:
+    threshold: 0.5
+  consistency: greedy
+  consistency_kwargs:
+    close_temporal: true
+  debate_rounds: 1
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/valid.jsonl

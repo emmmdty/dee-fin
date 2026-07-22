@@ -1,0 +1,21 @@
+# Relation stage ablation — multi-agent WITHOUT the proposer committee: a single
+# proposer handles all relation types (no role specialisation / no debate),
+# keeping the verifier + arbiter. Isolates the committee's contribution.
+relations:
+  mode: multi_agent
+  extractor: heuristic
+  extractor_kwargs:
+    coref_overlap_threshold: 0.6
+  proposers:
+    - {role: single, relation_types: [coreference, temporal, causal, subevent]}
+  use_verifier: true
+  verifier_kwargs:
+    threshold: 0.5
+  consistency: greedy
+  consistency_kwargs:
+    close_temporal: true
+  debate_rounds: 1
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/valid.jsonl

@@ -1,0 +1,21 @@
+# Relations — risk-controlled graph construction. Build the event graph with the
+# multi-agent grounded + consistent flow, then admit edges with a CRC-calibrated
+# confidence threshold so the gold false-negative rate is bounded at `alpha`
+# (the graph provably retains >= 1 - alpha of true relations). The `admission`
+# section is calibrated on the validation split and applied to test by
+# evaluate_relations; `relations.admission` itself maps to `finekg.relations.
+# admission.edge_admission`. CPU baseline; swap extractor to `llm` on the server.
+relations:
+  extractor: heuristic
+  use_verifier: true
+  verifier_kwargs: {threshold: 0.5}
+  consistency: greedy
+  consistency_kwargs: {close_temporal: true}
+  admission:
+    method: crc
+    alpha: 0.1
+    score_field: confidence
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/dev.jsonl

@@ -1,0 +1,44 @@
+{
+  "epal_rows": [
+    {"dataset": "ChFinAnn", "method": "Doc2EDAG", "p": 82.7, "r": 75.2, "f1": 78.8, "single": 83.9, "multi": 67.3},
+    {"dataset": "ChFinAnn", "method": "DE-PPN", "p": 83.7, "r": 76.4, "f1": 79.9, "single": 85.9, "multi": 68.4},
+    {"dataset": "ChFinAnn", "method": "PTPCG", "p": 83.7, "r": 75.4, "f1": 79.4, "single": 88.2, "multi": null},
+    {"dataset": "ChFinAnn", "method": "GIT", "p": 82.3, "r": 78.4, "f1": 80.3, "single": 87.6, "multi": 72.3},
+    {"dataset": "ChFinAnn", "method": "ReDEE", "p": 83.9, "r": 79.9, "f1": 81.9, "single": 88.7, "multi": 74.1},
+    {"dataset": "ChFinAnn", "method": "ProCNet", "p": 83.6, "r": 78.1, "f1": 80.8, "single": 87.5, "multi": 73.5},
+    {"dataset": "ChFinAnn", "method": "EPAL", "p": 83.1, "r": 83.5, "f1": 83.4, "single": 89.7, "multi": 76.6},
+    {"dataset": "DuEE-Fin", "method": "Doc2EDAG", "p": 67.1, "r": 60.1, "f1": 63.4, "single": 69.1, "multi": 58.7},
+    {"dataset": "DuEE-Fin", "method": "DE-PPN", "p": 69.0, "r": 33.5, "f1": 45.1, "single": 54.2, "multi": 21.8},
+    {"dataset": "DuEE-Fin", "method": "PTPCG", "p": 71.0, "r": 61.7, "f1": 66.0, "single": null, "multi": null},
+    {"dataset": "DuEE-Fin", "method": "GIT", "p": 69.8, "r": 65.9, "f1": 67.8, "single": 73.7, "multi": 63.8},
+    {"dataset": "DuEE-Fin", "method": "ReDEE", "p": 77.0, "r": 72.0, "f1": 74.4, "single": 78.9, "multi": 70.6},
+    {"dataset": "DuEE-Fin", "method": "ProCNet", "p": 79.3, "r": 71.4, "f1": 75.1, "single": 80.1, "multi": 71.0},
+    {"dataset": "DuEE-Fin", "method": "EPAL", "p": 77.3, "r": 75.5, "f1": 76.4, "single": 81.2, "multi": 72.7}
+  ],
+  "seele_rows": [
+    {"dataset": "ChFinAnn", "method": "SEELE", "p": null, "r": null, "f1": 85.1, "single": null, "multi": null},
+    {"dataset": "DuEE-Fin", "method": "SEELE", "p": null, "r": null, "f1": 80.8, "single": null, "multi": null}
+  ],
+  "chfinann_event_baseline": {
+    "EquityFreeze": ["EF", "EquityFreeze", 74.8, 78.8],
+    "EquityRepurchase": ["ER", "EquityRepurchase", 93.4, 92.0],
+    "EquityUnderweight": ["EU", "EquityUnderweight", 76.3, 77.7],
+    "EquityOverweight": ["EO", "EquityOverweight", 77.3, 82.4],
+    "EquityPledge": ["EP", "EquityPledge", 81.5, 83.1]
+  },
+  "dueefin_event_baseline": {
+    "公司上市": ["CL", "公司上市", 59.1, 66.5],
+    "股东减持": ["SR", "股东减持", 74.5, 76.7],
+    "股东增持": ["EO", "股东增持", 57.5, 75.5],
+    "企业收购": ["EA", "企业收购", 68.3, 72.1],
+    "企业融资": ["FI", "企业融资", 76.1, 79.1],
+    "股份回购": ["ER", "股份回购", 91.3, 94.8],
+    "质押": ["EP", "质押", 78.2, 85.3],
+    "解除质押": ["CP", "解除质押", 76.8, 84.8],
+    "企业破产": ["GB", "企业破产", 69.3, 62.0],
+    "亏损": ["EL", "亏损", 86.1, 86.2],
+    "被约谈": ["BG", "被约谈", 71.1, 58.0],
+    "中标": ["BI", "中标", 76.3, 76.6],
+    "高管变动": ["SC", "高管变动", 61.2, 64.8]
+  }
+}

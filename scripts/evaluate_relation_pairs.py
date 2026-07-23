@@ -37,15 +37,23 @@ _DIAG_KEYS = (
 )
 
 
-def _load_predictions(path: Path) -> dict[str, list[RelationEdge]]:
+def _load_predictions(path: Path, min_confidence: float = 0.0) -> dict[str, list[RelationEdge]]:
+    """Edges per document, optionally keeping only those at/above a confidence floor.
+
+    The floor is the precision/recall dial of a pair classifier: plain arg-max
+    over-predicts whenever training rebalanced the classes (negative downsampling
+    and/or class weights), so sweeping it separates "the model cannot find them"
+    from "the decision rule admits too many".
+    """
     pred_by_doc: dict[str, list[RelationEdge]] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
             continue
         record = json.loads(line)
+        edges = [RelationEdge.model_validate(e) for e in record.get("edges", [])]
         pred_by_doc[str(record["doc_id"])] = [
-            RelationEdge.model_validate(e) for e in record.get("edges", [])
+            e for e in edges if e.confidence >= min_confidence
         ]
     return pred_by_doc
 
@@ -80,11 +88,17 @@ def main() -> int:
         "--window-ceilings", type=int, nargs="+",
         help="report the structural recall ceiling for these window sizes",
     )
+    parser.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.0,
+        help="drop predicted edges below this confidence (precision/recall dial)",
+    )
     parser.add_argument("--output", type=Path, help="write the JSON report here")
     args = parser.parse_args()
 
     docs = list(load_maven_ere(args.gold_path))
-    pred_by_doc = _load_predictions(args.predictions)
+    pred_by_doc = _load_predictions(args.predictions, args.min_confidence)
     per_doc = [
         pair_prf(pred_by_doc.get(doc.doc_id, []), doc, max_distance=args.max_distance)
         for doc in docs
@@ -92,6 +106,7 @@ def main() -> int:
     report: dict = {
         "n_docs": len(docs),
         "max_distance": args.max_distance,
+        "min_confidence": args.min_confidence,
         "pair": _aggregate(per_doc),
     }
     if args.window_ceilings:

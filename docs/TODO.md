@@ -39,8 +39,22 @@
 - **修复触发词定位缺陷**：MAVEN-ERE `trigger_word` 是小写形式而句子保留原始大小写，句首/专名触发词精确
   `find` 必然失配（实测 train_smoke 6/919 = 0.65%、valid_smoke 4/637 = 0.63%）；改**大小写不敏感 + 词边界**
   后降为 **0.00%**。该问题由训练侧 fail-fast 暴露——loader 对同样失配是容忍的（记 `span=(0,0)`）。
-- GPU 冒烟训练（30 docs / 1 epoch，card 1）跑通并落完整 checkpoint；全量训练（2913 docs × 3 epochs）进行中。
-  **真实 causal/subevent F1 尚未产出**，出结果后如实回填（对照生成式探针的 0.4%），未达标按 PHASE_A 止损处理。
+- 全量训练完成（2913 docs × 3 epochs，loss 4.12 → 2.49 → 2.04 → 1.76）。**首轮 pair-classification
+  评测（valid 710 篇）如实结果：**
+
+  | 关系 | P | R | F1 | 调阈值后最佳 F1 | 目标 |
+  |---|---|---|---|---|---|
+  | causal | .049 | **.675** | .091 | **.167**(thr .9) | ≥.25 ❌ **未达标** |
+  | subevent | .043 | **.881** | .082 | **.206**(thr .95) | ≥.20 ✅ |
+  | temporal | .191 | .575 | .286 | .317(thr .5) | — |
+
+  - **召回瓶颈已破**：causal recall **0.4% → 67.5%**、subevent **0% → 88.1%**，`hallucinated=0`
+    （判别式不产生端点不存在的幻觉边，相对生成式的结构优势）。
+  - **但 precision 崩**：阈值扫到 .99 时 causal P 仅 **.240** → 模型未学出判别边界，**不是决策规则问题**，
+    阈值救不回来。
+  - **诊断**：负采样 3:1 vs 真实候选分布约 63:1，再叠加逆频加权 CE = **双重补偿**，把模型教成宁滥勿缺。
+  - **进行中**：PHASE_A 要求的类不平衡消融——`neg-ratio=30 × class-weights∈{none, inverse}`，
+    card 1/2 并行。产物 `runs/relations/sup_neg30_{nw,iw}`。
 
 ### Ch4 先行模块（来自 v3，降级复用）
 
@@ -57,7 +71,7 @@
 | 阶段 | 任务 | 当前状态 | 完成门槛 |
 |---|---|---|---|
 | P0 | 主数据与溯源 | ✅ 主干数据完成；扩展数据部分仅 raw | 主数据 hash/manifest 可核 |
-| A | Ch2 判别式关系抽取 | 🟡 代码完成 + 冒烟通过；全量训练中，F1 未出 | causal F1 ≥25（目标 30–37），subevent ≥20 |
+| A | Ch2 判别式关系抽取 | 🟡 首轮未达标（causal F1 .167 vs .25）；**召回瓶颈已破** .4%→67.5%；类不平衡消融中 | causal F1 ≥25（目标 30–37），subevent ≥20 |
 | B | 一致性、repair trace、风险准入 | 🟡 consistency/CRC 已有；repair trace 和真实图实验未做 | violation↓、分层 FNR、ECG 可重建率↑ |
 | C | Ch1 规范事件节点 | ⬜ 未开始；schema/coref/calibration 可复用 | 检测 F1、CoNLL、误合并率、ECE |
 | C2 | Ch1 跨文档泛化 | ⬜ 未开始；ECB+ raw 已有，CLES 未取 | ECB+/CLES 对比 SECURE/MEET/DIE-EC |

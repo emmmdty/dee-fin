@@ -17,6 +17,7 @@ wrong token (as in `succession/encode.py`).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from finekg.core.schema import EventNode, RelationEdge, RelationType
@@ -55,14 +56,19 @@ FAMILY_SUBTYPES: dict[str, tuple[str, ...]] = {
 def locate_trigger_token(sentence: str, trigger: str, offsets: list[tuple[int, int]]) -> int:
     """Token index whose char span covers the trigger; fail-fast if unlocatable.
 
-    `offsets` is a tokenizer's `offset_mapping` for `sentence`. A trigger not found
-    in its sentence, or dropped by truncation, raises rather than silently reading
-    position 0 -- shared by inference and training so both pool identically.
+    `offsets` is a tokenizer's `offset_mapping` for `sentence`. Matching is
+    **case-insensitive on a word boundary**: MAVEN-ERE's `trigger_word` is
+    lower-cased while the sentence keeps its original casing, so a sentence-initial
+    or proper-noun trigger ("armed" in "Armed police officers ...") only matches
+    case-insensitively -- 0.65% of mentions, which an exact `find` loses. The word
+    boundary stops a substring ("arm" inside "armed") from pooling a wrong token.
+    Anything still unlocatable raises rather than silently reading position 0;
+    shared by inference and training so both pool identically.
     """
-    char = sentence.find(trigger)
-    if char < 0:
+    match = re.search(rf"\b{re.escape(trigger)}\b", sentence, re.IGNORECASE)
+    if match is None:
         raise ValueError(f"trigger {trigger!r} not in sentence -- unlocatable mention")
-    tok = next((i for i, (s, e) in enumerate(offsets) if s <= char < e), None)
+    tok = next((i for i, (s, e) in enumerate(offsets) if s <= match.start() < e), None)
     if tok is None:
         raise ValueError(f"trigger {trigger!r} fell outside the tokenised span (truncated)")
     return tok

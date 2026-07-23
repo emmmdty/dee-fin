@@ -60,6 +60,21 @@ def test_locate_trigger_token_and_fail_fast():
         sup.locate_trigger_token("The bomb", "missile", offsets)
 
 
+def test_locate_trigger_token_is_case_insensitive():
+    # MAVEN-ERE's trigger_word is lower-cased while the sentence keeps its original
+    # casing, so a sentence-initial or proper-noun trigger ("armed" in "Armed police
+    # officers ...") only matches case-insensitively. 0.65% of mentions hit this.
+    offsets = [(0, 0), (0, 5), (6, 12), (0, 0)]  # <s>, "Armed", "police", </s>
+    assert sup.locate_trigger_token("Armed police", "armed", offsets) == 1
+
+
+def test_locate_trigger_token_respects_word_boundaries():
+    # "arm" must not match inside "armed" -- a substring hit would pool a wrong token.
+    offsets = [(0, 0), (0, 5), (6, 12), (0, 0)]  # <s>, "armed", "police", </s>
+    with pytest.raises(ValueError):
+        sup.locate_trigger_token("armed police", "arm", offsets)
+
+
 def test_extract_builds_grounded_edges_from_scores(monkeypatch):
     ex = relation_extractors.create("supervised")
     nodes = [_node("a", 0, 0), _node("b", 1, 0)]

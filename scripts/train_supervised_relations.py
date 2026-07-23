@@ -61,11 +61,17 @@ def downsample_negatives(
     return positives + random.Random(seed).sample(negatives, keep)
 
 
-def class_weights(rows: list[PairExample]) -> dict[str, list[float]]:
-    """Inverse-frequency weight per label per family (0.0 for labels never seen).
+def class_weights(rows: list[PairExample], alpha: float = 1.0) -> dict[str, list[float]]:
+    """Inverse-frequency weight per label per family, tempered by `alpha`.
 
-    Counters the causal/subevent sparsity that sinks recall; together with negative
-    downsampling this is the class-imbalance arm of the Phase A ablation.
+    The weight is `(total / (k * count)) ** alpha`: alpha=1 is plain inverse
+    frequency, alpha=0 is uniform (off), alpha=0.5 the usual middle ground.
+
+    Tempering matters because the families differ in sparsity by ~39:3.4:1
+    (temporal:causal:subevent gold). Full inverse weighting makes the dense
+    families over-predict (precision collapses); dropping it entirely buries the
+    sparsest one (subevent recall collapses). A single global setting cannot
+    satisfy both ends of that range, so the strength is a dial, not a switch.
     """
     weights: dict[str, list[float]] = {}
     for family, subtypes in FAMILY_SUBTYPES.items():
@@ -77,7 +83,9 @@ def class_weights(rows: list[PairExample]) -> dict[str, list[float]]:
             # go missing — so the lookup raises instead.
             counts[index[row.labels.get(family, "NONE")]] += 1
         total = sum(counts)
-        weights[family] = [total / (len(subtypes) * c) if c else 0.0 for c in counts]
+        weights[family] = [
+            (total / (len(subtypes) * c)) ** alpha if c else 0.0 for c in counts
+        ]
     return weights
 
 
@@ -92,12 +100,12 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--neg-ratio", type=float, default=3.0, help="negatives per positive")
     parser.add_argument(
-        "--class-weights",
-        choices=("inverse", "none"),
-        default="inverse",
-        help="class-imbalance arm (PHASE_A ablation): inverse-frequency CE weights, or off. "
-        "Stacking it on top of aggressive negative downsampling double-compensates and "
-        "collapses precision.",
+        "--weight-alpha",
+        type=float,
+        default=1.0,
+        help="class-imbalance dial (PHASE_A ablation): CE weight = inverse_freq ** alpha. "
+        "1.0 = plain inverse (dense families over-predict, precision collapses), "
+        "0.0 = off (the sparsest family, subevent, gets buried), 0.5 = middle ground.",
     )
     parser.add_argument("--max-distance", type=int, default=None, help="None = document-level")
     parser.add_argument(
@@ -121,7 +129,7 @@ def main() -> int:
     rows = downsample_negatives(
         build_training_rows(docs, args.max_distance), args.neg_ratio, args.seed
     )
-    weights = class_weights(rows) if args.class_weights == "inverse" else None
+    weights = class_weights(rows, args.weight_alpha) if args.weight_alpha > 0 else None
     docs_by_id = {d.doc_id: d for d in docs}
     rows_by_doc: dict[str, list[PairExample]] = {}
     for row in rows:

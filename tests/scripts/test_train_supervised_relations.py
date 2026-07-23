@@ -57,3 +57,15 @@ def test_class_weights_downweight_the_dominant_none_class():
     causal = tr.class_weights(rows)["causal"]  # (NONE, CAUSE, PRECONDITION)
     assert causal[0] < causal[1]  # frequent NONE weighted below the sparse CAUSE
     assert causal[2] == 0.0  # never seen -> no weight
+
+
+def test_class_weights_alpha_tempers_the_imbalance_correction():
+    # alpha is the dial between plain inverse frequency (1.0) and uniform (0.0):
+    # full weighting makes dense families over-predict, none buries the sparsest.
+    rows = [_example(i, {}) for i in range(8)]
+    rows += [_example(100 + i, {"causal": "CAUSE"}) for i in range(2)]
+    full = tr.class_weights(rows, alpha=1.0)["causal"]
+    half = tr.class_weights(rows, alpha=0.5)["causal"]
+    assert half[1] < full[1]  # sparse class corrected less aggressively
+    assert half[0] > full[0]  # dominant class penalised less
+    assert half[1] == pytest.approx(full[1] ** 0.5)

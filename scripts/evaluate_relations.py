@@ -73,6 +73,11 @@ def main() -> int:
         help="override relations.extractor_kwargs.adapter_path",
     )
     parser.add_argument(
+        "--checkpoint-path",
+        type=str,
+        help="override relations.extractor_kwargs.checkpoint_path (supervised extractor)",
+    )
+    parser.add_argument(
         "--dump-predictions",
         type=Path,
         help="write per-document predicted edges for offline CPU re-scoring",
@@ -81,12 +86,14 @@ def main() -> int:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    if args.model or args.adapter:
+    if args.model or args.adapter or args.checkpoint_path:
         ekw = cfg.setdefault("relations", {}).setdefault("extractor_kwargs", {})
         if args.model:
             ekw["model_name"] = args.model
         if args.adapter:
             ekw["adapter_path"] = args.adapter
+        if args.checkpoint_path:
+            ekw["checkpoint_path"] = args.checkpoint_path
     pipeline = RelationPipeline(RelationPipelineConfig.from_dict(cfg))
     loader = LOADERS[cfg["data"]["loader"]]
     path = args.path or Path(cfg["data"]["path"])

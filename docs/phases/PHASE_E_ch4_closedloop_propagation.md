@@ -28,7 +28,9 @@
 
 ## Constraints
 - 遵守 `CLAUDE.md` 硬约束；`tests/core/test_propagation.py` 测试锁不可改语义。
-- 与 CFEP（TKG 纯预测）、self-healing KG（规则非下游验证）显式区分（`docs/SPEC.md` §5）。
+- 与 CFEP（TKG 纯预测）、self-healing KG（规则非下游验证）、**DeepRefine（2605.10488，下游导向 KB 精化 +
+  无金标 RL）** 显式区分（`docs/SPEC.md` §5）——我们是事件因果图 + reachability + conformal 覆盖保证 + 三图分解。
+- **门控信号来源必须先定死**（`docs/SPEC.md` §4.5）：无标签在线代理 or 离线诊断定位，别默认用金标 MRR（防 oracle）。
 
 ## 验收标准（Done when）
 - [ ] 闭环控制器（下游门控接受 + 终止判据 + repair trace）实现 + 测试；校验命令全绿。

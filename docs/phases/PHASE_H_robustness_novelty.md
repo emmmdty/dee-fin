@@ -4,7 +4,8 @@
 
 ## Goal（完成目标）
 ① **多种子 13/17/42** 跑各章主表，报 mean±std；② 消融补齐（M1/M2 噪声级如实入消融，各章 delta 消融）；
-③ **投稿前穷尽 pipeline-CP 新颖性扫**（读 2404.17769、CFEP 2026.findings-acl.258 全文），把窄 delta 从 MEDIUM 提到 HIGH 或加限定；
+③ **投稿前穷尽 pipeline-CP 新颖性扫**（读 2404.17769、CFEP 2026.findings-acl.258、**PASC 2605.18812 /
+SCRC 2512.12844 / DeepRefine 2605.10488 / SRE 2506.06910** 全文；竞品区分见 `EXPERIMENTS.md` §5），把窄 delta 从 MEDIUM 提到 HIGH 或加限定；
 ④ **Ch2 方法改名定稿**（避 SCRC 2512.12844），docs/代码统一。
 
 ## 依赖 / 产物

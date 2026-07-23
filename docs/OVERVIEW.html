@@ -1,0 +1,1419 @@
+<meta charset="utf-8">
+<title>Fin-EKG 课题总览 · 可信事件图谱的构建与下游应用</title>
+
+<style>
+/* ============================================================
+   Fin-EKG OVERVIEW · 设计令牌
+   色阶含义：四章冷→暖 = 构建误差沿管线累积，Ch4 是热点(headline)
+   ============================================================ */
+:root{
+  --paper:#EFF2F0; --paper-2:#E5EAE7; --card:#F8FAF9; --card-2:#EEF2F0;
+  --ink:#16201F; --ink-2:#3E4A47; --ink-3:#5E6A67;
+  --line:#D4DBD7; --line-strong:#7E8B87;
+  --c1:#2C6A87; --c2:#327062; --c3:#755D1E; --c4:#A84E39;
+  --c1-soft:#E1ECF1; --c2-soft:#E2EFEB; --c3-soft:#F0EAD7; --c4-soft:#F4E5E0;
+  --shadow:0 1px 2px rgba(22,32,31,.06), 0 8px 24px -16px rgba(22,32,31,.28);
+  --rail:200px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:#101817; --paper-2:#0B1211; --card:#17211F; --card-2:#1C2725;
+    --ink:#E5EBE8; --ink-2:#AFB9B6; --ink-3:#7E8987;
+    --line:#26312E; --line-strong:#5F726D;
+    --c1:#63ABC8; --c2:#5FBBA6; --c3:#C8A551; --c4:#DC7F65;
+    --c1-soft:#13262D; --c2-soft:#122823; --c3-soft:#251F0F; --c4-soft:#2A1A14;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -18px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#101817; --paper-2:#0B1211; --card:#17211F; --card-2:#1C2725;
+  --ink:#E5EBE8; --ink-2:#AFB9B6; --ink-3:#7E8987;
+  --line:#26312E; --line-strong:#5F726D;
+  --c1:#63ABC8; --c2:#5FBBA6; --c3:#C8A551; --c4:#DC7F65;
+  --c1-soft:#13262D; --c2-soft:#122823; --c3-soft:#251F0F; --c4-soft:#2A1A14;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -18px rgba(0,0,0,.8);
+}
+:root[data-theme="light"]{
+  --paper:#EFF2F0; --paper-2:#E5EAE7; --card:#F8FAF9; --card-2:#EEF2F0;
+  --ink:#16201F; --ink-2:#3E4A47; --ink-3:#5E6A67;
+  --line:#D4DBD7; --line-strong:#7E8B87;
+  --c1:#2C6A87; --c2:#327062; --c3:#755D1E; --c4:#A84E39;
+  --c1-soft:#E1ECF1; --c2-soft:#E2EFEB; --c3-soft:#F0EAD7; --c4-soft:#F4E5E0;
+  --shadow:0 1px 2px rgba(22,32,31,.06), 0 8px 24px -16px rgba(22,32,31,.28);
+}
+
+/* ---------- 字体角色 ---------- */
+:root{
+  --f-display:"Source Han Serif SC","Noto Serif CJK SC","Songti SC",STSong,SimSun,ui-serif,Georgia,serif;
+  --f-body:"PingFang SC","Hiragino Sans GB","Source Han Sans SC","Noto Sans CJK SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  --f-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth; scroll-padding-top:1.5rem}
+@media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *{animation:none !important; transition:none !important} }
+
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--f-body); font-size:16px; line-height:1.72;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- 骨架 ---------- */
+.wrap{
+  max-width:1240px; margin:0 auto; padding:0 24px 96px;
+  display:grid; grid-template-columns:var(--rail) minmax(0,1fr); gap:48px; align-items:start;
+}
+main{min-width:0}
+.col{max-width:70ch}
+
+/* 破格图带：比正文列宽，自成横向滚动容器 */
+.band{max-width:none; margin:36px 0; }
+.band > .scroller{overflow-x:auto; padding-bottom:6px; -webkit-overflow-scrolling:touch}
+
+/* ---------- 侧栏目录 ---------- */
+nav.rail{
+  position:sticky; top:24px; font-size:13.5px; line-height:1.55;
+  border-right:1px solid var(--line); padding:8px 16px 8px 0;
+  /* 必须显式归零：窄屏时导航是一行 nowrap 链接，其 min-content 会把 grid 轨道撑到
+     ~1060px，连带 main 一起变宽，整页横向滚动。min-width:0 让轨道能缩到视口宽。 */
+  min-width:0;
+}
+nav.rail .brand{
+  font-family:var(--f-display); font-size:17px; font-weight:600; letter-spacing:.01em;
+  color:var(--ink); display:block; margin-bottom:4px;
+}
+nav.rail .sub{color:var(--ink-3); font-size:12px; letter-spacing:.06em; margin-bottom:18px}
+nav.rail ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px}
+nav.rail a{
+  display:flex; gap:8px; align-items:baseline; color:var(--ink-2); text-decoration:none;
+  padding:3px 6px; border-radius:3px; border-left:2px solid transparent;
+}
+nav.rail a:hover{background:var(--card-2); color:var(--ink)}
+nav.rail a:focus-visible{outline:2px solid var(--c1); outline-offset:1px}
+nav.rail a .n{font-family:var(--f-mono); font-size:11px; color:var(--ink-3); min-width:1.6em}
+nav.rail .grp{margin-top:14px; font-size:11px; letter-spacing:.14em; color:var(--ink-3); padding-left:6px}
+nav.rail a.k1{border-left-color:var(--c1)} nav.rail a.k2{border-left-color:var(--c2)}
+nav.rail a.k3{border-left-color:var(--c3)} nav.rail a.k4{border-left-color:var(--c4)}
+
+/* ---------- 排版 ---------- */
+h1,h2,h3,h4{font-family:var(--f-display); font-weight:600; text-wrap:balance; margin:0}
+h1{font-size:clamp(30px,4.4vw,44px); line-height:1.24; letter-spacing:-.01em}
+h2{font-size:26px; line-height:1.32; margin:0 0 6px}
+h3{font-size:19px; line-height:1.4; margin:28px 0 8px}
+h4{font-size:15.5px; line-height:1.45; margin:20px 0 6px; font-family:var(--f-body); font-weight:600}
+p{margin:0 0 14px}
+a{color:var(--c1)}
+/* overflow-wrap:anywhere — 长文件路径在窄屏下不可断行会顶破视口 */
+code,kbd{font-family:var(--f-mono); font-size:.88em; background:var(--card-2); padding:.1em .38em; border-radius:3px; border:1px solid var(--line); overflow-wrap:anywhere}
+strong{font-weight:600; color:var(--ink)}
+ul,ol{margin:0 0 14px; padding-left:1.3em}
+li{margin:0 0 6px}
+hr{border:0; border-top:1px solid var(--line); margin:44px 0}
+.lede{font-size:18px; line-height:1.7; color:var(--ink-2)}
+.eyebrow{
+  font-family:var(--f-mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--ink-3); display:block; margin-bottom:10px;
+}
+.note{font-size:14px; color:var(--ink-3); line-height:1.6}
+
+section{scroll-margin-top:24px; padding-top:8px}
+section + section{margin-top:52px}
+
+/* ---------- Hero ---------- */
+.hero{padding:56px 0 8px; max-width:none}
+/* 中文没有词间空格，默认可在任意汉字间断行——「新闻」被拆成两行过。
+   把词组包成 inline-block + nowrap，断行只能落在词组之间。 */
+.hero h1 .nb{display:inline-block; white-space:nowrap}
+.hero .thesis{
+  font-family:var(--f-display); font-size:clamp(17px,2.1vw,21px); line-height:1.62;
+  color:var(--ink-2); max-width:46ch; margin:0;
+}
+.hero-grid{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,480px); gap:40px; align-items:center; margin-top:24px}
+@media (max-width:980px){ .hero-grid{grid-template-columns:1fr} }
+
+.facts{
+  display:flex; flex-wrap:wrap; gap:0; margin:34px 0 0; border-top:1px solid var(--line);
+  border-bottom:1px solid var(--line);
+}
+.facts div{
+  padding:14px 22px 14px 0; margin-right:22px; border-right:1px solid var(--line); flex:0 0 auto;
+}
+.facts div:last-child{border-right:0; margin-right:0}
+.facts b{display:block; font-family:var(--f-mono); font-size:21px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:-.02em}
+.facts span{font-size:12px; color:var(--ink-3); letter-spacing:.04em}
+
+/* ---------- 状态标记：用形状，不用颜色 ---------- */
+.st{display:inline-block; width:9px; height:9px; margin-right:6px; vertical-align:baseline; border:1.5px solid var(--line-strong); flex:0 0 auto}
+.st-done{background:var(--ink-2); border-color:var(--ink-2)}
+.st-half{background:linear-gradient(90deg,var(--ink-2) 50%,transparent 50%); border-color:var(--ink-2)}
+.st-todo{background:transparent}
+.st-stale{background:repeating-linear-gradient(45deg,var(--line-strong) 0 2px,transparent 2px 4px); border-color:var(--line-strong)}
+.legend{display:flex; flex-wrap:wrap; gap:18px; font-size:13px; color:var(--ink-3); margin:14px 0 0}
+.legend span{display:inline-flex; align-items:center}
+
+/* ---------- 章节色阶条：读者始终知道自己在管线的哪一段 ---------- */
+.ramp{display:flex; gap:3px; margin:0 0 18px; max-width:none}
+.ramp i{height:4px; flex:1; background:var(--line); border-radius:0}
+.ramp[data-on="1"] i:nth-child(1){background:var(--c1)}
+.ramp[data-on="2"] i:nth-child(-n+2){background:var(--c2)}
+.ramp[data-on="2"] i:nth-child(1){background:var(--c1)}
+.ramp[data-on="3"] i:nth-child(-n+3){background:var(--c3)}
+.ramp[data-on="3"] i:nth-child(1){background:var(--c1)} .ramp[data-on="3"] i:nth-child(2){background:var(--c2)}
+.ramp[data-on="4"] i{background:var(--c4)}
+.ramp[data-on="4"] i:nth-child(1){background:var(--c1)} .ramp[data-on="4"] i:nth-child(2){background:var(--c2)}
+.ramp[data-on="4"] i:nth-child(3){background:var(--c3)}
+
+.chap-head{border-top:2px solid var(--ac); padding-top:16px; margin-bottom:4px}
+.chap-head .kicker{
+  font-family:var(--f-mono); font-size:11.5px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--ac); display:flex; gap:10px; align-items:center; margin-bottom:8px;
+}
+.chap-head .kicker .dim{color:var(--ink-3); letter-spacing:.08em; text-transform:none; font-size:12px}
+#ch1{--ac:var(--c1); --soft:var(--c1-soft)} #ch2{--ac:var(--c2); --soft:var(--c2-soft)}
+#ch3{--ac:var(--c3); --soft:var(--c3-soft)} #ch4{--ac:var(--c4); --soft:var(--c4-soft)}
+#budget{--ac:var(--c4); --soft:var(--c4-soft)}
+
+/* ---------- 卡片 / 面板 ---------- */
+.panel{background:var(--card); border:1px solid var(--line); border-radius:4px; padding:20px 22px; box-shadow:var(--shadow)}
+.panel.tight{padding:14px 16px}
+.panel.soft{background:var(--soft, var(--card-2)); border-color:var(--line)}
+/* 330px 下限保证 4 个数据契约卡排成 2×2，而不是 3+1 的孤儿行 */
+.grid2{display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:14px}
+.grid3{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px}
+
+/* 例子块 */
+.example{
+  border-left:3px solid var(--ac,var(--line-strong)); background:var(--card-2);
+  padding:14px 18px; margin:18px 0; font-size:15px; border-radius:0 4px 4px 0;
+}
+.example .tag{font-family:var(--f-mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3); display:block; margin-bottom:6px}
+.trig{border-bottom:2px solid var(--ac,var(--c1)); font-weight:600; padding-bottom:1px}
+
+/* 折叠 */
+details{border:1px solid var(--line); border-radius:4px; background:var(--card); margin:14px 0}
+details[open]{background:var(--card)}
+summary{
+  cursor:pointer; padding:11px 16px; font-size:14.5px; font-weight:600; list-style:none;
+  display:flex; align-items:center; gap:9px; color:var(--ink);
+}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"+"; font-family:var(--f-mono); color:var(--ink-3); font-weight:400; font-size:15px}
+details[open] summary::before{content:"−"}
+summary:focus-visible{outline:2px solid var(--c1); outline-offset:-2px}
+details .body{padding:2px 16px 16px; font-size:14.5px; line-height:1.68; color:var(--ink-2)}
+details .body :last-child{margin-bottom:0}
+
+/* ---------- 术语卡 ---------- */
+.terms{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; max-width:none}
+.term{background:var(--card); border:1px solid var(--line); border-radius:4px; padding:14px 16px}
+.term dt{font-weight:600; font-size:15px; margin:0 0 4px; display:flex; gap:8px; align-items:baseline; flex-wrap:wrap}
+.term dt .en{font-family:var(--f-mono); font-size:11.5px; color:var(--ink-3); font-weight:400; letter-spacing:.03em}
+.term dd{margin:0; font-size:14px; line-height:1.62; color:var(--ink-2)}
+.term dd em{font-style:normal; color:var(--ink); background:var(--card-2); padding:0 .25em; border-radius:2px}
+
+/* ---------- 流程条（CSS 手绘，本地打开也能渲染） ---------- */
+.flow{display:flex; align-items:stretch; gap:0; min-width:min-content; padding:4px 2px}
+.flow .stage{
+  flex:0 0 auto; width:186px; background:var(--card); border:1px solid var(--line);
+  border-top:3px solid var(--sc,var(--line-strong)); border-radius:4px; padding:13px 14px; box-shadow:var(--shadow);
+}
+.flow .stage .no{font-family:var(--f-mono); font-size:10.5px; letter-spacing:.14em; color:var(--sc,var(--ink-3)); text-transform:uppercase}
+.flow .stage h5{margin:4px 0 6px; font-size:15px; font-family:var(--f-display); font-weight:600}
+.flow .stage p{margin:0; font-size:12.8px; line-height:1.55; color:var(--ink-2)}
+.flow .arrow{
+  flex:0 0 auto; width:96px; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:4px; padding:0 4px; text-align:center;
+}
+.flow .arrow .ln{width:100%; height:1px; background:var(--line-strong); position:relative}
+.flow .arrow .ln::after{
+  content:""; position:absolute; right:-1px; top:-3.5px; border-left:7px solid var(--line-strong);
+  border-top:4px solid transparent; border-bottom:4px solid transparent;
+}
+.flow .arrow .lbl{font-family:var(--f-mono); font-size:10.5px; line-height:1.35; color:var(--ink-3); word-break:break-all}
+.flow .arrow .qty{font-family:var(--f-mono); font-size:10.5px; color:var(--ink-3); font-variant-numeric:tabular-nums}
+
+/* 数据形状芯片 */
+.shape{
+  display:inline-flex; align-items:center; gap:6px; font-family:var(--f-mono); font-size:11.5px;
+  background:var(--card-2); border:1px solid var(--line); border-radius:3px; padding:2px 7px; color:var(--ink-2);
+  white-space:nowrap;
+}
+.shapes{display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 0}
+
+/* ---------- 表格 ---------- */
+.tbl-wrap{overflow-x:auto; margin:18px 0; border:1px solid var(--line); border-radius:4px; background:var(--card)}
+/* font-family/size 显式写死：本地直接打开（无 doctype → quirks 模式）时表格不继承 body 字体 */
+table{border-collapse:collapse; width:100%; font-size:14px; min-width:560px; font-family:var(--f-body); color:var(--ink)}
+th,td{font-family:inherit; font-size:inherit}
+th,td{text-align:left; padding:9px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+thead th{
+  font-family:var(--f-mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--ink-3); font-weight:500; background:var(--card-2); white-space:nowrap;
+}
+tbody tr:last-child td{border-bottom:0}
+td.num{font-family:var(--f-mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+td code{background:transparent; border:0; padding:0; color:var(--ink-2)}
+
+/* ---------- SVG 图 ---------- */
+svg.dg{display:block; max-width:100%; height:auto; min-width:640px}
+/* hero 的图只有 4 个节点，允许缩放；否则 min-width 会撑破 520px 的栏导致整页横向滚动 */
+.hero svg.dg{min-width:0}
+svg.dg .bx{fill:var(--card); stroke:var(--line-strong); stroke-width:1}
+svg.dg .bx-soft{fill:var(--card-2); stroke:var(--line); stroke-width:1}
+svg.dg .grp{fill:none; stroke:var(--line-strong); stroke-width:1; stroke-dasharray:4 3; opacity:.75}
+svg.dg .ln{stroke:var(--line-strong); stroke-width:1.3; fill:none}
+svg.dg .ln-d{stroke:var(--line-strong); stroke-width:1.3; fill:none; stroke-dasharray:5 4}
+svg.dg text{font-family:var(--f-body); fill:var(--ink); font-size:12.5px}
+svg.dg text.t{font-size:12.5px; font-weight:600}
+svg.dg text.s{font-size:11px; fill:var(--ink-3)}
+svg.dg text.m{font-family:var(--f-mono); font-size:10.5px; fill:var(--ink-3)}
+.fig{margin:0}
+.fig figcaption{font-size:13px; color:var(--ink-3); margin-top:10px; line-height:1.6; max-width:74ch}
+.fig figcaption b{color:var(--ink-2)}
+
+/* ---------- 卡点提示 ---------- */
+.block{
+  border:1px solid var(--line-strong); border-left:4px solid var(--c4); background:var(--card);
+  border-radius:0 4px 4px 0; padding:16px 20px; margin:22px 0;
+}
+.block .hd{font-weight:600; font-size:15px; margin-bottom:6px; display:flex; align-items:center; gap:9px}
+.block .hd .m{font-family:var(--f-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--c4)}
+
+/* ---------- 窄屏 ---------- */
+@media (max-width:1080px){
+  .wrap{grid-template-columns:1fr; gap:0; padding:0 20px 72px}
+  nav.rail{
+    position:static; border-right:0; border-bottom:1px solid var(--line);
+    padding:16px 0 12px; margin-bottom:8px;
+  }
+  nav.rail ol{flex-direction:row; overflow-x:auto; gap:4px; padding-bottom:6px}
+  nav.rail a{white-space:nowrap; border-left:0; border-bottom:2px solid transparent; border-radius:3px 3px 0 0}
+  nav.rail a.k1{border-bottom-color:var(--c1)} nav.rail a.k2{border-bottom-color:var(--c2)}
+  nav.rail a.k3{border-bottom-color:var(--c3)} nav.rail a.k4{border-bottom-color:var(--c4)}
+  nav.rail .grp{display:none}
+  .hero{padding:32px 0 4px}
+}
+</style>
+
+<!-- 共享箭头标记：用 CSS 变量填色，两套主题都跟随 -->
+<svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true" focusable="false"><defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" style="fill:var(--line-strong)"/></marker>
+  <marker id="ah1" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" style="fill:var(--c1)"/></marker>
+  <marker id="ah2" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" style="fill:var(--c2)"/></marker>
+  <marker id="ah3" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" style="fill:var(--c3)"/></marker>
+  <marker id="ah4" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" style="fill:var(--c4)"/></marker>
+</defs></svg>
+
+<div class="wrap">
+
+<nav class="rail" aria-label="目录">
+  <span class="brand">Fin-EKG</span>
+  <span class="sub">课题总览 · v4</span>
+  <ol>
+    <li><a href="#what"><span class="n">01</span>这到底在做什么</a></li>
+    <li><a href="#terms"><span class="n">02</span>名词扫盲</a></li>
+    <li><a href="#pipeline"><span class="n">03</span>总管线</a></li>
+    <li class="grp">四章</li>
+    <li><a class="k1" href="#ch1"><span class="n">Ch1</span>身份可信</a></li>
+    <li><a class="k2" href="#ch2"><span class="n">Ch2</span>结构可信</a></li>
+    <li><a class="k3" href="#ch3"><span class="n">Ch3</span>事实可信</a></li>
+    <li><a class="k4" href="#ch4"><span class="n">Ch4</span>传播可信</a></li>
+    <li class="grp">全篇</li>
+    <li><a href="#budget"><span class="n">04</span>统一创新</a></li>
+    <li><a href="#code"><span class="n">05</span>代码地图</a></li>
+    <li><a href="#roadmap"><span class="n">06</span>执行路线</a></li>
+    <li><a href="#honest"><span class="n">07</span>诚实区</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <span class="eyebrow">学位论文主线 · 2026-07-21 重设</span>
+  <h1><span class="nb">把一堆新闻，</span><span class="nb">变成一张</span><span class="nb">信得过的事件图</span></h1>
+  <div class="hero-grid">
+    <div>
+      <p class="thesis">机器读文章、抽事件、连因果、建成图谱，这件事早有人做。
+      难的是——<strong>建出来的图有错，你敢不敢拿它去做决策？</strong>
+      这个课题给「敢不敢」一个可量化的答案，并且在下游任务的验收下把图修好。</p>
+    </div>
+    <figure class="fig">
+      <svg class="dg" viewBox="0 0 520 250" role="img" aria-label="一张微型事件因果图：地震导致倒塌与受伤，受伤是救援的前提，救援是待预测的事件">
+        <!-- 边 -->
+        <path class="ln" d="M118 108 L196 74"  marker-end="url(#ah)"/>
+        <path class="ln" d="M118 128 L196 166" marker-end="url(#ah)"/>
+        <path class="ln" d="M258 92 L258 148"  marker-end="url(#ah)"/>
+        <path class="ln-d" d="M320 166 L386 130" marker-end="url(#ah4)" style="stroke:var(--c4)"/>
+        <!-- 节点 -->
+        <g><rect class="bx" x="24" y="100" width="94" height="36" rx="18" style="fill:var(--c1-soft);stroke:var(--c1)"/>
+           <text class="t" x="71" y="123" text-anchor="middle">地震</text></g>
+        <g><rect class="bx" x="196" y="56" width="94" height="36" rx="18" style="fill:var(--c1-soft);stroke:var(--c1)"/>
+           <text class="t" x="243" y="79" text-anchor="middle">建筑倒塌</text></g>
+        <g><rect class="bx" x="196" y="148" width="94" height="36" rx="18" style="fill:var(--c1-soft);stroke:var(--c1)"/>
+           <text class="t" x="243" y="171" text-anchor="middle">人员受伤</text></g>
+        <g><rect x="386" y="94" width="104" height="38" rx="19" style="fill:var(--c4-soft);stroke:var(--c4);stroke-dasharray:5 4"/>
+           <text class="t" x="438" y="118" text-anchor="middle" style="fill:var(--c4)">? 救援</text></g>
+        <!-- 标注 -->
+        <text class="m" x="150" y="80">CAUSE</text>
+        <text class="m" x="128" y="158">CAUSE</text>
+        <text class="m" x="266" y="124">CAUSE</text>
+        <text class="m" x="330" y="180" style="fill:var(--c4)">待预测</text>
+        <text class="s" x="386" y="152">从 512 个候选里选一个</text>
+        <text class="m" x="24" y="222">节点 = 事件　箭头 = 因果 / 子事件关系</text>
+        <text class="m" x="24" y="238">这张图就是本课题的全部对象：怎么建、错在哪、错了怎么办</text>
+      </svg>
+    </figure>
+  </div>
+
+  <div class="facts">
+    <div><b>4</b><span>章 · 可信度四维</span></div>
+    <div><b>9</b><span>执行阶段 A–I</span></div>
+    <div><b>4480</b><span>MAVEN 标注文档</span></div>
+    <div><b>0.4%</b><span>当前卡点：因果召回</span></div>
+    <div><b>239</b><span>测试通过 / 11 跳过</span></div>
+  </div>
+</header>
+
+<hr>
+
+<!-- ============ 01 这到底在做什么 ============ -->
+<section id="what">
+  <div class="col">
+    <span class="eyebrow">01 / 从零开始</span>
+    <h2>这个课题到底在做什么</h2>
+    <p class="lede">一句话：<strong>让机器自动读文本、建一张事件之间的因果图，并且对这张图的每一处错误负责到底。</strong></p>
+
+    <h3>先看「事件图谱」长什么样</h3>
+    <p>随便拿一段新闻：</p>
+  </div>
+
+  <div class="example col" style="--ac:var(--c1)">
+    <span class="tag">示例文档（贯穿全文）</span>
+    周二凌晨发生 6.2 级<span class="trig">地震</span>。震中多栋建筑<span class="trig">倒塌</span>，
+    造成至少 30 人<span class="trig">受伤</span>。当地政府随即启动<span class="trig">救援</span>行动。
+  </div>
+
+  <div class="col">
+    <p>人一眼就懂：地震 → 倒塌 → 受伤 → 救援。机器要做的是把这个理解写成结构化数据：</p>
+    <ul>
+      <li><strong>节点</strong>＝一个事件。带类型（<code>Catastrophe</code>）、触发词（「地震」）、论元（时间／地点／伤亡人数）、以及它在原文的哪个字符位置。</li>
+      <li><strong>边</strong>＝事件之间的关系。因果（CAUSE / PRECONDITION）、子事件（subevent）、时序（BEFORE）。</li>
+      <li>整张图＝<strong>事件图谱（Event Knowledge Graph）</strong>。</li>
+    </ul>
+
+    <h3>为什么值得写一篇学位论文</h3>
+    <p>因为上面每一步机器都会做错，而且错误会<strong>往下游滚雪球</strong>：</p>
+    <ul>
+      <li>同一件事在文中被提了三次（「地震」「这场灾害」「6.2 级强震」）——机器可能建成 3 个节点，也可能把两件不同的事错误地合并成 1 个。<span class="note">→ 身份错</span></li>
+      <li>因果关系极其稀疏且难判。<strong>本项目当前的抽取器在测试集上只召回了 0.4% 的因果边（810 条里抓到 3 条）。</strong><span class="note">→ 结构错</span></li>
+      <li>文中说的「预计将追加救援」是<em>还没发生</em>的事，机器却当成既成事实建进图里。<span class="note">→ 事实错</span></li>
+      <li>上面三种错叠加，导致下游预测「接下来会发生什么」时，答案根本不在图里能到达的范围内。<span class="note">→ 传播失效</span></li>
+    </ul>
+
+    <p>市面上绝大多数工作只优化「抽得准不准」这一个指标。本课题问的是另一个问题：</p>
+  </div>
+
+  <div class="panel col" style="border-left:4px solid var(--c4)">
+    <p style="margin:0; font-family:var(--f-display); font-size:17px; line-height:1.65">
+    我建的图有错，那么我用它做出的下游判断，<strong>错的概率上界是多少</strong>？
+    以及——能不能<strong>让下游任务来当裁判，反过来把图修对</strong>？</p>
+  </div>
+
+  <div class="col">
+    <h3>四章 = 可信度的四个维度</h3>
+    <p>论文的骨架就是把「可信」拆成四层，每层一章，串成一条流水线。前三章负责<strong>把图建可信</strong>，第四章负责<strong>把误差算清楚并闭环修复</strong>——第四章是全篇的招牌（headline）。</p>
+  </div>
+
+  <div class="tbl-wrap col" style="max-width:none">
+    <table>
+      <thead><tr><th>章</th><th>可信维度</th><th>一句话任务</th><th>主数据</th><th>代码域</th></tr></thead>
+      <tbody>
+        <tr><td class="num"><b>Ch1</b></td><td>身份可信</td><td>同一件事只建一个节点，且带证据和「我有多确定」</td><td class="num">MAVEN 检测 + Arg + coref</td><td><code>core/</code> + 新建</td></tr>
+        <tr><td class="num"><b>Ch2</b></td><td>结构可信</td><td>把边连对、连一致，连错了留下可追溯的修改记录</td><td class="num">MAVEN-ERE</td><td><code>relations/</code></td></tr>
+        <tr><td class="num"><b>Ch3</b></td><td>事实可信</td><td>识别「没发生 / 只是猜测」的事件，把它们从图里清掉</td><td class="num">MAVEN-FACT</td><td>新建 + <code>core/calibration/</code></td></tr>
+        <tr><td class="num"><b>Ch4</b></td><td>传播可信 ★</td><td>算清误差怎么传到下游，并用下游成绩当裁判修图</td><td class="num">CGEP-MAVEN / ESC</td><td><code>succession/</code> + <code>agents/</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ 02 名词扫盲 ============ -->
+<section id="terms">
+  <div class="col">
+    <span class="eyebrow">02 / 词汇表</span>
+    <h2>名词扫盲</h2>
+    <p>这一节把后面会反复出现的词一次讲清楚。<strong>只看这一节就能读懂全文。</strong></p>
+  </div>
+
+  <dl class="terms">
+    <div class="term"><dt>事件图谱 <span class="en">Event Knowledge Graph</span></dt>
+      <dd>节点是<em>事件</em>（地震、倒塌）而不是实体（苹果公司、张三）的知识图谱。边表示事件之间的因果、时序、包含关系。</dd></div>
+
+    <div class="term"><dt>MAVEN 四件套 <span class="en">THU-KEG</span></dt>
+      <dd>清华开放的中文/英文事件标注数据集家族，<em>同一批 4480 篇文档</em>上标了四层：<b>MAVEN</b>（事件检测）、<b>MAVEN-Arg</b>（论元）、<b>MAVEN-ERE</b>（关系＋共指）、<b>MAVEN-FACT</b>（事实性）。四章各用一层，天然对齐——这是选它的核心原因。官方 test 标签不公开，本地一律用 valid 报数。</dd></div>
+
+    <div class="term"><dt>CGEP <span class="en">Causality Graph Event Prediction</span></dt>
+      <dd>下游任务：给你一张<em>已建好的事件因果图</em>，图里有个位置空着（比如「救援」），从 512 个候选事件里挑出正确的那个。<b>这就是 Ch4 用来验收图质量的裁判。</b></dd></div>
+
+    <div class="term"><dt>ECG <span class="en">Event Causality Graph</span></dt>
+      <dd>CGEP 的一个题目单位：一篇文档内由因果＋子事件边连成的<em>连通子图</em>，要求至少 4 个节点。本项目从 MAVEN-ERE 重建了 2994 个，平均 8.82 节点 / 13.21 边。</dd></div>
+
+    <div class="term"><dt>SeDGPL <span class="en">基座模型</span></dt>
+      <dd>2024 年的 CGEP 最强公开方法，本项目<em>自己复现并当基线</em>。三个部件：<b>DsGL</b> 把图压成一串文字喂给语言模型、<b>EeCE</b> 两级门控编码、<b>ScEP</b> 对比学习的预测头。注意：它<em>不用论元</em>，只吃（事件类型，触发词，所在句子）。</dd></div>
+
+    <div class="term"><dt>MRR / Hits@k <span class="en">排序指标</span></dt>
+      <dd>候选排序题的标准分。MRR＝正确答案排名倒数的平均值，越高越好。本项目自跑 SeDGPL 基线 MRR ＝ <b>0.1836</b>。</dd></div>
+
+    <div class="term"><dt>Conformal Prediction <span class="en">保形预测</span></dt>
+      <dd>一套<em>不依赖模型假设</em>的统计工具：不再只给一个答案，而是给一个<b>候选集合</b>，并数学保证「正确答案落在集合里」的概率 ≥ 1−α。α 是你自己设的风险预算（比如 0.1 就是允许错 10%）。<b>集合越小越有价值。</b></dd></div>
+
+    <div class="term"><dt>可达性 <span class="en">reachability</span></dt>
+      <dd>正确答案在图上<em>能不能沿着边走到</em>。如果 Ch2 把一条关键的因果边删了，答案就永远到不了——这种错误是下游模型自己<b>察觉不到</b>的，必须单独给它留风险预算。这是本课题最硬的差异点。</dd></div>
+
+    <div class="term"><dt>CRC <span class="en">Conformal Risk Control</span></dt>
+      <dd>保形预测的推广：可以直接控制「漏检率（FNR）不超过 α」这类风险。Ch2 用它决定<em>哪些边准入</em>——宁可多留几条噪声边，也要保证不漏掉关键边。</dd></div>
+
+    <div class="term"><dt>校准 / ECE <span class="en">calibration</span></dt>
+      <dd>模型说「我 90% 有把握」时，是不是真有 90% 对。ECE 衡量这个偏差。<b>Ch1 输出的 <code>node_confidence</code> 必须是校准过的</b>，Ch4 的误差预算才吃得下。</dd></div>
+
+    <div class="term"><dt>Repair trace <span class="en">修复轨迹</span></dt>
+      <dd>结构化记录「我改了哪条边、因为触发了哪条一致性规则、改前改后差多少」。这是「可追溯」这个卖点的落地形式。</dd></div>
+
+    <div class="term"><dt>Registry <span class="en">插件注册表</span></dt>
+      <dd>本项目的工程约定：每个可替换组件用 <code>@register("名字")</code> 注册，配置文件按名字选。<b>升级一个阶段 = 加一个实现，不返工调用方。</b></dd></div>
+  </dl>
+</section>
+
+<hr>
+
+<!-- ============ 03 总管线 ============ -->
+<section id="pipeline">
+  <div class="col">
+    <span class="eyebrow">03 / 端到端</span>
+    <h2>总管线：数据是怎么流的</h2>
+    <p>下面这条链是全篇的主干。<strong>箭头上标的是真正在函数之间传递的数据类型和真实数量</strong>——这些类型定义在 <code>src/finekg/core/schema.py</code>，是冻结契约，只许加可选字段，不许改义。</p>
+  </div>
+
+  <div class="band">
+    <div class="scroller">
+      <div class="flow">
+        <div class="stage" style="--sc:var(--ink-3)">
+          <span class="no">输入</span><h5>原始文档</h5>
+          <p>MAVEN 4480 篇标注文档，纯文本 + 句子切分。</p>
+        </div>
+        <div class="arrow"><span class="lbl">raw text</span><span class="ln"></span><span class="qty">4480 doc</span></div>
+
+        <div class="stage" style="--sc:var(--c1)">
+          <span class="no">Ch1 身份</span><h5>规范事件节点</h5>
+          <p>检测触发词 → 消解共指 → 聚成一个节点 → 挂论元 → 输出校准置信。</p>
+        </div>
+        <div class="arrow"><span class="lbl">EventNode[]</span><span class="ln"></span><span class="qty">+ confidence</span></div>
+
+        <div class="stage" style="--sc:var(--c2)">
+          <span class="no">Ch2 结构</span><h5>一致的关系边</h5>
+          <p>成对分类打分 → 全局一致解码（无环／传递闭包）→ CRC 风险准入 → 留修复轨迹。</p>
+        </div>
+        <div class="arrow"><span class="lbl">RelationEdge[]<br>EventGraph</span><span class="ln"></span><span class="qty">+ admitted</span></div>
+
+        <div class="stage" style="--sc:var(--c3)">
+          <span class="no">Ch3 事实</span><h5>净化后的图</h5>
+          <p>判定每个事件的事实性（发生了／没发生／只是可能）→ 剔除或降权非事实节点与边。</p>
+        </div>
+        <div class="arrow"><span class="lbl">EventGraph′</span><span class="ln"></span><span class="qty">净化版</span></div>
+
+        <div class="stage" style="--sc:var(--c4)">
+          <span class="no">Ch4 传播</span><h5>下游预测 + 闭环</h5>
+          <p>抽 ECG 出题 → SeDGPL 排序 512 候选 → 保形集合 → <b>用预测成绩当裁判回头改图</b>。</p>
+        </div>
+        <div class="arrow"><span class="lbl">CgepInstance<br>→ Prediction</span><span class="ln"></span><span class="qty">2994 ECG</span></div>
+
+        <div class="stage" style="--sc:var(--ink-3)">
+          <span class="no">输出</span><h5>带保证的答案</h5>
+          <p>排序 + 证据链 + 覆盖集合 + 「可以弃权」标记，以及端到端错误率上界。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <h3>每一步真正传的是什么（冻结契约）</h3>
+    <p>这四个类是全项目的「货币」。看懂它们就看懂了数据流：</p>
+  </div>
+
+  <div class="grid2 col" style="max-width:none">
+    <div class="panel tight">
+      <h4 style="margin-top:0"><code>EventNode</code> — 一个事件</h4>
+      <div class="shapes">
+        <span class="shape">event_type</span><span class="shape">trigger</span>
+        <span class="shape">trigger_evidence[]</span><span class="shape">arguments{}</span>
+        <span class="shape">time_anchor</span><span class="shape">confidence</span><span class="shape">metadata{}</span>
+      </div>
+      <p class="note" style="margin:10px 0 0"><b>schema 冻结</b>：Ch1 加任何新语义都只能塞进 <code>metadata</code>，不许加字段。</p>
+    </div>
+
+    <div class="panel tight">
+      <h4 style="margin-top:0"><code>RelationEdge</code> — 一条边</h4>
+      <div class="shapes">
+        <span class="shape">head_id → tail_id</span><span class="shape">relation_type</span>
+        <span class="shape">subtype</span><span class="shape">confidence</span>
+        <span class="shape">evidence[]</span><span class="shape">rationale</span>
+        <span class="shape">faithfulness</span><span class="shape">admitted</span>
+      </div>
+      <p class="note" style="margin:10px 0 0"><code>admitted</code> 就是 Ch2 的 CRC 风险准入开关；<code>evidence</code> 撑起「可追溯」。</p>
+    </div>
+
+    <div class="panel tight">
+      <h4 style="margin-top:0"><code>CgepInstance</code> — 一道下游题</h4>
+      <div class="shapes">
+        <span class="shape">nodes()</span><span class="shape">edges()</span>
+        <span class="shape">candidates() × 512</span><span class="shape">label</span>
+      </div>
+      <p class="note" style="margin:10px 0 0">由 <code>succession/data/cgep.py</code> 从 MAVEN-ERE 重建。查询边 = 出度 0 且入度 1 的那个节点。</p>
+    </div>
+
+    <div class="panel tight">
+      <h4 style="margin-top:0"><code>Prediction</code> — 一个答案</h4>
+      <div class="shapes">
+        <span class="shape">ranked[]</span><span class="shape">evidence_chain[]</span>
+        <span class="shape">coverage_set</span><span class="shape">abstained</span><span class="shape">faithfulness</span>
+      </div>
+      <p class="note" style="margin:10px 0 0">注意 <code>coverage_set</code> 和 <code>abstained</code>：答案可以是「一个集合」，也可以是「我不敢答」。</p>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="block">
+      <div class="hd"><span class="m">当前卡点</span></div>
+      <p style="margin:0">这条管线现在<strong>断在 Ch2</strong>。生成式抽取器（SFT + GRPO）在 MAVEN-ERE 上的因果召回是
+      <b>0.4%（810 条抓到 3 条）</b>、子事件 <b>0%（139 条抓到 0 条）</b>。边抽不出来 → 构建版 ECG 退化 →
+      Ch4 的真实三图对比做不了。<strong>Phase A（换判别式抽取器）是全篇的关键路径起点。</strong></p>
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ Ch1 ============ -->
+<section id="ch1">
+  <div class="ramp" data-on="1"><i></i><i></i><i></i><i></i></div>
+  <div class="chap-head col" style="max-width:none">
+    <div class="kicker"><span>Ch1 · 身份可信</span><span class="dim">Phase C / C2 · 尚未开工</span></div>
+    <h2>同一件事，只建一个节点</h2>
+  </div>
+
+  <div class="col">
+    <h3>想解决什么问题</h3>
+    <p>一篇文档里同一个事件会被反复提及，不同文档之间更是如此。如果不做归并，图里就会出现一堆重复节点；
+    归并太狠，又会把两件<strong>相似但不同</strong>的事错误合并（比如同一天的两次余震）。</p>
+  </div>
+
+  <div class="example col" style="--ac:var(--c1)">
+    <span class="tag">难点：相似事件难例</span>
+    「震中多栋建筑<span class="trig">倒塌</span>」和「三小时后一栋危楼再次<span class="trig">垮塌</span>」——
+    事件类型相同、触发词近义、同一篇文档。<strong>该合并吗？不该。</strong>
+    普通共指模型在这种「难例」上误合并率很高。
+  </div>
+
+  <div class="col">
+    <p>本章的差异化不在共指本身（那是复现），而在两点：<strong>难例判别</strong>，和输出一个
+    <strong>下游能消费的校准置信</strong> <code>node_confidence</code>——它直接喂给 Ch4 的误差预算。</p>
+
+    <h3>数据流</h3>
+  </div>
+
+  <div class="band">
+    <div class="scroller">
+      <div class="flow">
+        <div class="stage" style="--sc:var(--c1)"><span class="no">in</span><h5>文档 + 句子</h5><p>MAVEN 原文。</p></div>
+        <div class="arrow"><span class="lbl">text</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c1)"><span class="no">step 1</span><h5>事件检测</h5><p>找出触发词并分类型。目标 micro-F1 ~60+。</p></div>
+        <div class="arrow"><span class="lbl">mention[]</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c1)"><span class="no">step 2</span><h5>难例对判别</h5><p>同类型近义触发词负采样，训一个 pair 分类器专治误合并。</p></div>
+        <div class="arrow"><span class="lbl">pair score</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c1)"><span class="no">step 3</span><h5>不确定性感知聚类</h5><p>把 mention 聚成 canonical node，簇级聚合证据与置信。</p></div>
+        <div class="arrow"><span class="lbl">cluster</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c1)"><span class="no">step 4</span><h5>挂论元 + 校准</h5><p>接 MAVEN-Arg 补论元；<code>node_confidence</code> 做 ECE 校准。</p></div>
+        <div class="arrow"><span class="lbl">EventNode[]</span><span class="ln"></span><span class="qty">→ Ch2</span></div>
+        <div class="stage" style="--sc:var(--ink-3)"><span class="no">out</span><h5>规范事件节点</h5><p>去重、可溯源、带校准置信。</p></div>
+      </div>
+    </div>
+  </div>
+
+  <details>
+    <summary>论文风架构图（写作时可直接参考）</summary>
+    <div class="body">
+      <div style="overflow-x:auto">
+      <svg class="dg" viewBox="0 0 880 260" role="img" aria-label="Ch1 架构图：检测器与难例判别器并联输入不确定性感知聚类，输出带校准置信的规范节点">
+        <rect class="grp" x="16" y="34" width="250" height="192" rx="4"/>
+        <text class="m" x="28" y="52">Mention-level</text>
+        <rect class="grp" x="292" y="34" width="266" height="192" rx="4"/>
+        <text class="m" x="304" y="52">Cluster-level</text>
+        <rect class="grp" x="584" y="34" width="280" height="192" rx="4"/>
+        <text class="m" x="596" y="52">Downstream-consumable</text>
+
+        <rect class="bx" x="36" y="72" width="210" height="46" rx="3" style="fill:var(--c1-soft);stroke:var(--c1)"/>
+        <text class="t" x="141" y="94" text-anchor="middle">事件检测器</text>
+        <text class="s" x="141" y="110" text-anchor="middle">PLM · trigger + type</text>
+
+        <rect class="bx" x="36" y="146" width="210" height="60" rx="3" style="fill:var(--c1-soft);stroke:var(--c1)"/>
+        <text class="t" x="141" y="170" text-anchor="middle">难例对判别器</text>
+        <text class="s" x="141" y="186" text-anchor="middle">同类型近义触发词负采样</text>
+        <text class="s" x="141" y="200" text-anchor="middle">pair classifier</text>
+
+        <rect class="bx" x="312" y="82" width="226" height="60" rx="3"/>
+        <text class="t" x="425" y="106" text-anchor="middle">不确定性感知规范化聚类</text>
+        <text class="s" x="425" y="126" text-anchor="middle">mention → canonical node</text>
+
+        <rect class="bx-soft" x="312" y="158" width="226" height="48" rx="3"/>
+        <text class="t" x="425" y="180" text-anchor="middle">簇级证据 / 置信聚合</text>
+        <text class="s" x="425" y="196" text-anchor="middle">EvidenceSpan 汇总</text>
+
+        <rect class="bx" x="604" y="72" width="240" height="52" rx="3"/>
+        <text class="t" x="724" y="94" text-anchor="middle">论元挂载（MAVEN-Arg）</text>
+        <text class="s" x="724" y="112" text-anchor="middle">canonical_arguments</text>
+
+        <rect class="bx" x="604" y="146" width="240" height="60" rx="3" style="fill:var(--c1-soft);stroke:var(--c1)"/>
+        <text class="t" x="724" y="170" text-anchor="middle">置信校准（ECE / reliability）</text>
+        <text class="s" x="724" y="190" text-anchor="middle">node_confidence → Ch4 误差预算</text>
+
+        <path class="ln" d="M246 95 L312 100" marker-end="url(#ah1)"/>
+        <path class="ln" d="M246 176 L312 176" marker-end="url(#ah1)"/>
+        <path class="ln" d="M425 142 L425 158" marker-end="url(#ah)"/>
+        <path class="ln" d="M538 108 L604 98" marker-end="url(#ah1)"/>
+        <path class="ln" d="M538 182 L604 176" marker-end="url(#ah1)"/>
+        <text class="m" x="16" y="248">复用：core/schema.py · core/eval/coreference.py（MUC/B³/CEAFe/CoNLL 已建）· core/calibration/</text>
+      </svg>
+      </div>
+    </div>
+  </details>
+
+  <div class="col">
+    <h3>方法论与验收</h3>
+    <div class="tbl-wrap" style="max-width:none">
+      <table>
+        <thead><tr><th>项</th><th>内容</th></tr></thead>
+        <tbody>
+          <tr><td>数据</td><td class="num">MAVEN 检测 + MAVEN-Arg + MAVEN-ERE 的 coref 标注</td></tr>
+          <tr><td>指标</td><td>检测 micro-F1 ~60+；共指 MUC ~86 可比区间；<b>相似事件误合并率显著↓</b>；<code>node_confidence</code> 报 ECE</td></tr>
+          <tr><td>创新落点</td><td>共指主干<b>明说是复现、不主张新颖</b>。delta = 难例判别 + 下游可消费的校准置信 + 证据冲突消解</td></tr>
+          <tr><td>审稿人会问</td><td>「事件共指不是老问题吗？」→ 答：我们不比 CoNLL 分数，我们比<b>误合并率</b>和<b>置信是否校准到能进误差预算</b></td></tr>
+          <tr><td>止损</td><td>证据对齐评测难设计 → 退「canonical table + 难例判别」，仍成一章</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>代码现状</h3>
+    <div class="panel">
+      <p style="margin:0 0 8px"><span class="st st-todo"></span><strong>待建</strong>　本章几乎<strong>一行代码都没有</strong>。</p>
+      <p class="note" style="margin:0">可复用的地基已在：<code>core/schema.py</code> 的 <code>EventNode</code>/<code>EvidenceSpan</code>、
+      <code>core/eval/coreference.py</code> 的四套共指指标、<code>core/calibration/</code> 的不确定性原语。
+      要新建的是 <code>relations/data/maven_arg.py</code> 加载器和节点规范化模块。</p>
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ Ch2 ============ -->
+<section id="ch2">
+  <div class="ramp" data-on="2"><i></i><i></i><i></i><i></i></div>
+  <div class="chap-head col" style="max-width:none">
+    <div class="kicker"><span>Ch2 · 结构可信</span><span class="dim">Phase A / B · 全篇关键路径</span></div>
+    <h2>把边连对，连错了留下账</h2>
+  </div>
+
+  <div class="col">
+    <h3>想解决什么问题</h3>
+    <p>节点有了，事件之间到底谁导致谁？这是<strong>整个课题最难、也是目前最卡的一环</strong>。三个具体麻烦：</p>
+    <ul>
+      <li><strong>极度稀疏</strong>：一篇文档 n 个事件就有 n² 个候选对，真正有因果关系的只有零星几对。不处理类不平衡，模型会学会「全部预测无关系」。</li>
+      <li><strong>局部矛盾</strong>：逐对独立分类会产生 A 在 B 前、B 在 C 前、C 又在 A 前这种环，或者违反传递性的时序。</li>
+      <li><strong>删错代价不对称</strong>：多留一条噪声边只是变吵；<strong>删掉一条关键因果边，下游答案就永远到不了</strong>。所以准入不能只看准确率。</li>
+    </ul>
+
+    <h3>数据流</h3>
+  </div>
+
+  <div class="band">
+    <div class="scroller">
+      <div class="flow">
+        <div class="stage" style="--sc:var(--c2)"><span class="no">in</span><h5>金标事件节点</h5><p>先解耦 Ch1，只在 gold 节点上做，把问题隔离干净。</p></div>
+        <div class="arrow"><span class="lbl">EventNode[]</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c2)"><span class="no">step 1</span><h5>构候选对</h5><p><b>文档级</b>全配对（不能只取相邻句，否则召回天花板极低）。</p></div>
+        <div class="arrow"><span class="lbl">pair[]</span><span class="ln"></span><span class="qty">≈ n²</span></div>
+        <div class="stage" style="--sc:var(--c2)"><span class="no">step 2 ★</span><h5>判别式成对分类</h5><p>RoBERTa 插触发词 marker 编码事件对，三组头：causal / subevent / temporal。<b>必须治类不平衡。</b></p></div>
+        <div class="arrow"><span class="lbl">edge score</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c2)"><span class="no">step 3</span><h5>全局一致解码</h5><p>时序传递闭包、因果无环、共指对称。产 <code>RepairTrace</code>。</p></div>
+        <div class="arrow"><span class="lbl">consistent<br>edges</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c2)"><span class="no">step 4</span><h5>CRC 风险准入</h5><p>用保形风险控制卡阈值，保证漏检率 FNR ≤ α，分层报告。</p></div>
+        <div class="arrow"><span class="lbl">EventGraph</span><span class="ln"></span><span class="qty">+ admitted</span></div>
+        <div class="stage" style="--sc:var(--ink-3)"><span class="no">out</span><h5>一致 + 风险受控的图</h5><p>带修复轨迹，ECG 可重建率是验收指标。</p></div>
+      </div>
+    </div>
+  </div>
+
+  <details>
+    <summary>论文风架构图（写作时可直接参考）</summary>
+    <div class="body">
+      <div style="overflow-x:auto">
+      <svg class="dg" viewBox="0 0 880 290" role="img" aria-label="Ch2 架构图：候选构造、判别式打分、全局一致解码与 CRC 准入四段，一致解码向外发出修复轨迹">
+        <rect class="grp" x="16" y="34" width="200" height="176" rx="4"/>
+        <text class="m" x="28" y="52">Candidate</text>
+        <rect class="grp" x="240" y="34" width="216" height="176" rx="4"/>
+        <text class="m" x="252" y="52">Scoring（Phase A）</text>
+        <rect class="grp" x="480" y="34" width="384" height="176" rx="4"/>
+        <text class="m" x="492" y="52">Global decoding + Risk control（Phase B）</text>
+
+        <rect class="bx" x="36" y="76" width="160" height="52" rx="3"/>
+        <text class="t" x="116" y="98" text-anchor="middle">文档级配对</text>
+        <text class="s" x="116" y="116" text-anchor="middle">relations/pairs.py</text>
+
+        <rect class="bx-soft" x="36" y="146" width="160" height="46" rx="3"/>
+        <text class="s" x="116" y="166" text-anchor="middle">负例下采样 /</text>
+        <text class="s" x="116" y="182" text-anchor="middle">加权 CE / focal</text>
+
+        <rect class="bx" x="260" y="76" width="176" height="62" rx="3" style="fill:var(--c2-soft);stroke:var(--c2)"/>
+        <text class="t" x="348" y="98" text-anchor="middle">PLM 事件对编码</text>
+        <text class="s" x="348" y="116" text-anchor="middle">&lt;e&gt; marker 插入</text>
+        <text class="s" x="348" y="131" text-anchor="middle">RoBERTa</text>
+
+        <rect class="bx" x="260" y="152" width="176" height="46" rx="3"/>
+        <text class="t" x="348" y="172" text-anchor="middle">三组关系头</text>
+        <text class="s" x="348" y="189" text-anchor="middle">causal · subevent · temporal</text>
+
+        <rect class="bx" x="500" y="76" width="164" height="62" rx="3" style="fill:var(--c2-soft);stroke:var(--c2)"/>
+        <text class="t" x="582" y="98" text-anchor="middle">全局一致解码</text>
+        <text class="s" x="582" y="116" text-anchor="middle">传递闭包 · 破环</text>
+        <text class="s" x="582" y="131" text-anchor="middle">consistency/greedy</text>
+
+        <rect class="bx" x="688" y="76" width="158" height="62" rx="3" style="fill:var(--c2-soft);stroke:var(--c2)"/>
+        <text class="t" x="767" y="98" text-anchor="middle">CRC 边准入</text>
+        <text class="s" x="767" y="116" text-anchor="middle">FNR ≤ α_e</text>
+        <text class="s" x="767" y="131" text-anchor="middle">admission.py</text>
+
+        <rect class="bx" x="500" y="152" width="346" height="46" rx="3"/>
+        <text class="t" x="673" y="172" text-anchor="middle">RepairTrace（改了哪条边 · 触发哪条违规 · 前后差异）</text>
+        <text class="s" x="673" y="190" text-anchor="middle">可追溯性的落地形式 → 供 Ch4 闭环控制器读取</text>
+
+        <path class="ln" d="M196 102 L260 104" marker-end="url(#ah2)"/>
+        <path class="ln" d="M196 168 L260 168" marker-end="url(#ah2)"/>
+        <path class="ln" d="M436 106 L500 106" marker-end="url(#ah2)"/>
+        <path class="ln" d="M664 106 L688 106" marker-end="url(#ah2)"/>
+        <path class="ln" d="M582 138 L582 152" marker-end="url(#ah)"/>
+        <path class="ln-d" d="M767 138 L767 152" marker-end="url(#ah)"/>
+
+        <text class="m" x="16" y="238">当前实现：heuristic / llm 抽取器已注册；consistency + admission 已测试；★ supervised.py 待建 = Phase A</text>
+        <text class="m" x="16" y="256">生成式 SFT+GRPO 探针实测：causal 召回 0.4%（3/810）· subevent 0%（0/139）→ 改判别式打底</text>
+        <text class="m" x="16" y="274">目标区间：causal F1 ≥ 25（文献可比 30–37）· subevent ≥ 20</text>
+      </svg>
+      </div>
+    </div>
+  </details>
+
+  <div class="col">
+    <div class="block">
+      <div class="hd"><span class="m">Phase A</span>全篇瓶颈就在这里</div>
+      <p style="margin:0 0 8px">现在图里几乎连不出因果边，导致 Ch3 没有「有错的真实图」可以做鲁棒性分析，Ch4 没有 predicted / repaired 两张图可以对比。
+      <strong>Phase A 一天不做完，B / D / E 的真实实验就一天做不了。</strong></p>
+      <p class="note" style="margin:0">要做的事很具体：写 <code>relations/extractor/supervised.py</code>，
+      <code>@register("supervised")</code>，判别式打底，处理类不平衡，接进 <code>scripts/evaluate_relations.py</code>。</p>
+    </div>
+
+    <h3>方法论与验收</h3>
+    <div class="tbl-wrap" style="max-width:none">
+      <table>
+        <thead><tr><th>项</th><th>内容</th></tr></thead>
+        <tbody>
+          <tr><td>数据</td><td class="num">MAVEN-ERE（train/valid 公开，test 标签隐藏）</td></tr>
+          <tr><td>指标</td><td>per-relation P/R/F1、doc-macro-F1；violation / cycle 率修复前后；<b>分层 FNR</b>（边际／文档级／关系类条件）；<b>ECG 可重建率</b></td></tr>
+          <tr><td>创新落点</td><td>风险目标不是泛化 FNR，而是<b>下游可达性损失</b>——这是与通用保形风控的分界线</td></tr>
+          <tr><td>审稿人会问</td><td>「CRC 不就是现成工具吗？」→ 答：现成的是原语；delta 在<b>用下游可达性定义风险</b>，并且分层报告而不是宣称每篇每类都保证</td></tr>
+          <tr><td>⚠️ 命名</td><td>方法名 <b>CS-CRP 与 SCRC (2512.12844) 撞名，须改名</b>，方向是突出 reachability-budgeted。改名涉及文档与代码多处，要统一</td></tr>
+          <tr><td>止损</td><td>causal F1 &lt;10% 且排查无果 → 保留受控模拟，Ch2 收缩为「一致性 + 修复 + 风控」，仍成章</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>代码现状</h3>
+    <div class="panel">
+      <ul style="margin:0; padding-left:1.1em">
+        <li><span class="st st-done"></span><code>relations/extractor/heuristic.py</code>、<code>llm.py</code> — 两个注册项，接口范式可照抄</li>
+        <li><span class="st st-done"></span><code>relations/pairs.py</code>、<code>data/maven_ere.py</code> — 候选对齐尺子与数据加载</li>
+        <li><span class="st st-done"></span><code>relations/consistency/</code>（<code>identity</code>/<code>greedy</code>、破环、传递闭包）、<code>admission.py</code>（CRC 准入）— 已测试</li>
+        <li><span class="st st-todo"></span><code>relations/extractor/supervised.py</code> — <b>不存在，Phase A 的产物</b></li>
+        <li><span class="st st-todo"></span><code>RepairTrace</code> 结构化编辑记录 — 不存在，Phase B 的产物</li>
+        <li><span class="st st-half"></span><code>relations/rl/</code>（GRPO-RLVR）— 已实现，但按新颖性复核已<b>降级为消融</b>，不作卖点</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ Ch3 ============ -->
+<section id="ch3">
+  <div class="ramp" data-on="3"><i></i><i></i><i></i><i></i></div>
+  <div class="chap-head col" style="max-width:none">
+    <div class="kicker"><span>Ch3 · 事实可信</span><span class="dim">Phase D · 尚未开工</span></div>
+    <h2>图里那些「其实没发生」的事件</h2>
+  </div>
+
+  <div class="col">
+    <h3>想解决什么问题</h3>
+    <p>抽取器只管「文中提到了一个事件」，不管这个事件<strong>到底发生了没有</strong>。新闻里大量事件是否定的、假设的、传闻的、未来的。
+    把它们当成既成事实建进图，下游推理就是在错误前提上做的。</p>
+  </div>
+
+  <div class="example col" style="--ac:var(--c3)">
+    <span class="tag">MAVEN-FACT 的五类事实性</span>
+    <b>CT+</b> 确定发生（「建筑<span class="trig">倒塌</span>了」）　·
+    <b>CT−</b> 确定没发生（「大坝并未<span class="trig">溃决</span>」）　·
+    <b>PS+</b> 可能发生（「或将<span class="trig">追加</span>救援」）　·
+    <b>PS−</b> 可能没发生　·
+    <b>Uu</b> 无法判断
+  </div>
+
+  <div class="col">
+    <p>本章的创新点位置需要非常小心：<strong>「用结构信息帮助判断事实性」这件事 MAVEN-FACT 原文已经证过了，不能主张为新。</strong>
+    本章的 delta 是另外两件事：</p>
+    <ol>
+      <li><strong>预测图上的鲁棒性</strong>——MAVEN-FACT 原文全部用 gold 输入（gold 论元、gold 关系）。真实系统吃的是 Ch1/Ch2 输出的<em>有错的图</em>。掉多少分？没人量化过。</li>
+      <li><strong>事实性驱动的图净化</strong>——把非事实事件剔除或降权后，图变干净了，<em>下游预测有没有变好</em>？这个闭环没人做过。</li>
+    </ol>
+
+    <h3>数据流</h3>
+  </div>
+
+  <div class="band">
+    <div class="scroller">
+      <div class="flow">
+        <div class="stage" style="--sc:var(--c3)"><span class="no">in</span><h5>图 + 原文</h5><p>MAVEN-FACT 与 ERE 是同一批文档，天然对齐。</p></div>
+        <div class="arrow"><span class="lbl">EventGraph<br>+ text</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c3)"><span class="no">step 1</span><h5>结构感知事实性检测</h5><p>输入含论元 + 关系，5 类分类。目标 macro-F1 ≥ 47.6（打平文献）。</p></div>
+        <div class="arrow"><span class="lbl">factuality<br>+ evidence</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c3)"><span class="no">step 2 ★</span><h5>鲁棒性对照</h5><p><b>gold 输入 vs Ch1/Ch2 预测输入</b>，量化掉多少分。这是 delta 之一。</p></div>
+        <div class="arrow"><span class="lbl">Δ 掉点</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c3)"><span class="no">step 3 ★</span><h5>图净化算子</h5><p>非事实事件剔除或降权，连带处理它的边。</p></div>
+        <div class="arrow"><span class="lbl">EventGraph′</span><span class="ln"></span><span class="qty">→ Ch4</span></div>
+        <div class="stage" style="--sc:var(--ink-3)"><span class="no">out</span><h5>净化后的图</h5><p>验收标准是<b>下游预测有没有变好</b>，不是图变小了。</p></div>
+      </div>
+    </div>
+  </div>
+
+  <details>
+    <summary>论文风架构图（写作时可直接参考）</summary>
+    <div class="body">
+      <div style="overflow-x:auto">
+      <svg class="dg" viewBox="0 0 880 268" role="img" aria-label="Ch3 架构图：事实性检测器接收论元与关系，双路输入 gold 与 predicted 做鲁棒性对照，输出净化算子">
+        <rect class="grp" x="16" y="34" width="212" height="188" rx="4"/>
+        <text class="m" x="28" y="52">双路输入（鲁棒性协议）</text>
+        <rect class="grp" x="252" y="34" width="286" height="188" rx="4"/>
+        <text class="m" x="264" y="52">Detection（打底 = 复现）</text>
+        <rect class="grp" x="562" y="34" width="302" height="188" rx="4"/>
+        <text class="m" x="574" y="52">Purification（novelty 落点）</text>
+
+        <rect class="bx-soft" x="36" y="76" width="172" height="52" rx="3"/>
+        <text class="t" x="122" y="98" text-anchor="middle">gold 论元 + 关系</text>
+        <text class="s" x="122" y="116" text-anchor="middle">MAVEN-FACT 原设定</text>
+
+        <rect class="bx" x="36" y="146" width="172" height="58" rx="3" style="fill:var(--c3-soft);stroke:var(--c3)"/>
+        <text class="t" x="122" y="168" text-anchor="middle">predicted 论元 + 关系</text>
+        <text class="s" x="122" y="186" text-anchor="middle">来自 Ch1 / Ch2（有错）</text>
+
+        <rect class="bx" x="274" y="88" width="242" height="62" rx="3" style="fill:var(--c3-soft);stroke:var(--c3)"/>
+        <text class="t" x="395" y="112" text-anchor="middle">结构感知事实性检测器</text>
+        <text class="s" x="395" y="130" text-anchor="middle">5 类：CT+ / CT− / PS+ / PS− / Uu</text>
+        <text class="s" x="395" y="144" text-anchor="middle">+ evidence span</text>
+
+        <rect class="bx-soft" x="274" y="166" width="242" height="42" rx="3"/>
+        <text class="t" x="395" y="184" text-anchor="middle">Δ 掉点量化</text>
+        <text class="s" x="395" y="200" text-anchor="middle">gold-input vs predicted-input</text>
+
+        <rect class="bx" x="584" y="76" width="258" height="56" rx="3"/>
+        <text class="t" x="713" y="98" text-anchor="middle">净化算子</text>
+        <text class="s" x="713" y="116" text-anchor="middle">非事实节点剔除 / 降权 + 连带边处理</text>
+
+        <rect class="bx" x="584" y="150" width="258" height="56" rx="3" style="fill:var(--c3-soft);stroke:var(--c3)"/>
+        <text class="t" x="713" y="172" text-anchor="middle">下游增益验收（接 Ch4）</text>
+        <text class="s" x="713" y="190" text-anchor="middle">净化前后 SeDGPL MRR 对比</text>
+
+        <path class="ln" d="M208 102 L274 108" marker-end="url(#ah3)"/>
+        <path class="ln" d="M208 174 L274 128" marker-end="url(#ah3)"/>
+        <path class="ln" d="M395 150 L395 166" marker-end="url(#ah)"/>
+        <path class="ln" d="M516 112 L584 104" marker-end="url(#ah3)"/>
+        <path class="ln" d="M713 132 L713 150" marker-end="url(#ah3)"/>
+        <text class="m" x="16" y="246">数据：每 doc 含 events[].mention[].factuality + evidence_word/offset + 论元 + causal/subevent/temporal</text>
+        <text class="m" x="16" y="262">口径：开发与选模只用 train，最终本地报告用 valid；官方 test 不公开</text>
+      </svg>
+      </div>
+    </div>
+  </details>
+
+  <div class="col">
+    <h3>方法论与验收</h3>
+    <div class="tbl-wrap" style="max-width:none">
+      <table>
+        <thead><tr><th>项</th><th>内容</th></tr></thead>
+        <tbody>
+          <tr><td>数据</td><td class="num">MAVEN-FACT（train/valid 已就位并完成 provenance 核验）</td></tr>
+          <tr><td>指标</td><td>5 类 macro-F1 ≥ 47.6；evidence span F1；<b>gold vs predicted 输入掉点</b>；净化前后图质量 + 下游增益</td></tr>
+          <tr><td>创新落点</td><td><b>明说检测是复现</b>；delta = 预测图鲁棒性 + 净化下游收益</td></tr>
+          <tr><td>审稿人会问</td><td>「事实性检测 MAVEN-FACT 不是做过了？」→ 答：做过的是 gold 输入下的检测，我们做的是<b>有错输入下的掉点</b>和<b>净化能否换来下游收益</b></td></tr>
+          <tr><td>止损</td><td>净化没收益 → 退「事实性检测 + 预测图鲁棒性分析」，不宣称净化有效</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>代码现状</h3>
+    <div class="panel">
+      <p style="margin:0 0 8px"><span class="st st-todo"></span><strong>待建</strong>　本章也是<strong>一行代码都没有</strong>。数据已就位。</p>
+      <p class="note" style="margin:0">要新建：<code>relations/data/maven_fact.py</code> 加载器、事实性检测器、净化算子、鲁棒性协议。
+      可复用 <code>core/schema.py</code> 的 <code>EvidenceSpan</code> 存证据词、<code>core/calibration/</code> 处理不确定性。</p>
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ Ch4 ============ -->
+<section id="ch4">
+  <div class="ramp" data-on="4"><i></i><i></i><i></i><i></i></div>
+  <div class="chap-head col" style="max-width:none">
+    <div class="kicker"><span>Ch4 · 传播可信 ★ headline</span><span class="dim">Phase E / F · 半成品最多的一章</span></div>
+    <h2>让下游当裁判，反过来把图修对</h2>
+  </div>
+
+  <div class="col">
+    <h3>想解决什么问题</h3>
+    <p>前三章各自把自己那层做好了，但没人回答：<strong>这些错误合起来，对最终决策的伤害有多大？</strong>
+    而且，现在流行的「自我修复」（self-refine）有个已知毛病——<strong>模型自己觉得改好了，实际分数掉了</strong>。</p>
+    <p>Ch4 用一个具体的下游任务（CGEP：预测下一个事件）同时解决这两件事：</p>
+    <ol>
+      <li><strong>误差传播</strong>：对比 gold / predicted / repaired 三张图，量化<em>哪一类错误最伤下游</em>。</li>
+      <li><strong>下游门控闭环修复</strong>：控制器提出一个最小代价编辑（加边、删边、并节点……），<strong>只有当 SeDGPL 的预测成绩真的变好时才接受这次编辑</strong>。这就是治 self-refine 掉点的办法。</li>
+    </ol>
+  </div>
+
+  <div class="example col" style="--ac:var(--c4)">
+    <span class="tag">闭环长什么样</span>
+    观测（Ch2 一致性违规 + Ch3 事实性 + 证据）→ 控制器提议「补一条 受伤 → 救援 的 PRECONDITION 边」→
+    风险闸门检查 → <strong>重跑 SeDGPL，MRR 涨了 → 接受；没涨 → 回滚</strong> → 迭代到收敛 → 输出 repair trace。
+  </div>
+
+  <div class="col">
+    <h3>数据流</h3>
+  </div>
+
+  <div class="band">
+    <div class="scroller">
+      <div class="flow">
+        <div class="stage" style="--sc:var(--c4)"><span class="no">in</span><h5>三张图</h5><p>gold（人工标）· predicted（Ch1–3 建的）· repaired（闭环修完的）。</p></div>
+        <div class="arrow"><span class="lbl">EventGraph ×3</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c4)"><span class="no">step 1</span><h5>抽 ECG 出题</h5><p>连通分量 ≥4 节点，查询边 = 出度 0 入度 1，配 512 候选。</p></div>
+        <div class="arrow"><span class="lbl">CgepInstance</span><span class="ln"></span><span class="qty">2994 ECG</span></div>
+        <div class="stage" style="--sc:var(--c4)"><span class="no">step 2</span><h5>SeDGPL 排序</h5><p>图线性化 → 编码 → 对比头打分。基线 MRR 0.1836。</p></div>
+        <div class="arrow"><span class="lbl">ranked[]</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c4)"><span class="no">step 3</span><h5>闭环门控修复</h5><p>提议编辑 → 风险闸门 → <b>MRR 涨才接受</b> → 迭代。</p></div>
+        <div class="arrow"><span class="lbl">edits +<br>repair trace</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--c4)"><span class="no">step 4</span><h5>保形选择性预测</h5><p>候选分数 → 保形集合，给覆盖保证，可弃权。</p></div>
+        <div class="arrow"><span class="lbl">Prediction</span><span class="ln"></span></div>
+        <div class="stage" style="--sc:var(--ink-3)"><span class="no">out</span><h5>带保证的预测 + 误差曲线</h5><p>repaired 应当优于 predicted（如实报，可能很小）。</p></div>
+      </div>
+    </div>
+  </div>
+
+  <details>
+    <summary>论文风架构图（写作时可直接参考）</summary>
+    <div class="body">
+      <div style="overflow-x:auto">
+      <svg class="dg" viewBox="0 0 880 300" role="img" aria-label="Ch4 架构图：SeDGPL 三部件构成下游探针，闭环控制器观测-提议-门控-迭代，反馈边回灌到图">
+        <rect class="grp" x="16" y="34" width="300" height="150" rx="4"/>
+        <text class="m" x="28" y="52">SeDGPL 基座（自跑基线）</text>
+        <rect class="grp" x="340" y="34" width="230" height="150" rx="4"/>
+        <text class="m" x="352" y="52">我们的三个机制 M1–M3</text>
+        <rect class="grp" x="594" y="34" width="270" height="150" rx="4"/>
+        <text class="m" x="606" y="52">闭环控制器（Phase E · headline）</text>
+
+        <rect class="bx" x="34" y="72" width="88" height="46" rx="3"/>
+        <text class="t" x="78" y="92" text-anchor="middle">DsGL</text>
+        <text class="s" x="78" y="108" text-anchor="middle">图线性化</text>
+        <rect class="bx" x="130" y="72" width="88" height="46" rx="3"/>
+        <text class="t" x="174" y="92" text-anchor="middle">EeCE</text>
+        <text class="s" x="174" y="108" text-anchor="middle">两级门控编码</text>
+        <rect class="bx" x="226" y="72" width="76" height="46" rx="3"/>
+        <text class="t" x="264" y="92" text-anchor="middle">ScEP</text>
+        <text class="s" x="264" y="108" text-anchor="middle">对比预测头</text>
+        <rect class="bx-soft" x="34" y="132" width="268" height="38" rx="3"/>
+        <text class="s" x="168" y="156" text-anchor="middle">基线 MRR 0.1836 / strict 0.1265 · n=1908（单折 10ep）</text>
+
+        <rect class="bx" x="358" y="68" width="194" height="34" rx="3"/>
+        <text class="s" x="455" y="89" text-anchor="middle">M1 风险感知线性化 · BFS 选边</text>
+        <rect class="bx" x="358" y="110" width="194" height="34" rx="3"/>
+        <text class="s" x="455" y="131" text-anchor="middle">M2 结构感知编码 · reach_anchor</text>
+        <rect class="bx" x="358" y="152" width="194" height="34" rx="3" style="fill:var(--c4-soft);stroke:var(--c4)"/>
+        <text class="s" x="455" y="173" text-anchor="middle">M3 选择性头 · 保形覆盖保证</text>
+
+        <rect class="bx" x="612" y="66" width="234" height="40" rx="3"/>
+        <text class="s" x="729" y="83" text-anchor="middle">观测：一致性违规 + 事实性 + 证据</text>
+        <text class="s" x="729" y="98" text-anchor="middle">↓ 提议最小代价编辑</text>
+        <rect class="bx" x="612" y="114" width="234" height="30" rx="3"/>
+        <text class="s" x="729" y="134" text-anchor="middle">风险闸门（CRC 预算内）</text>
+        <rect class="bx" x="612" y="152" width="234" height="34" rx="3" style="fill:var(--c4-soft);stroke:var(--c4)"/>
+        <text class="t" x="729" y="174" text-anchor="middle">仅当下游 MRR 改善才接受</text>
+
+        <path class="ln" d="M302 95 L358 85" marker-end="url(#ah4)"/>
+        <path class="ln" d="M552 120 L612 120" marker-end="url(#ah4)"/>
+        <path class="ln" d="M729 106 L729 114" marker-end="url(#ah)"/>
+        <path class="ln" d="M729 144 L729 152" marker-end="url(#ah)"/>
+        <!-- 回灌 -->
+        <path class="ln-d" d="M729 186 L729 220 L168 220 L168 184" marker-end="url(#ah4)" style="stroke:var(--c4)"/>
+        <text class="m" x="380" y="214" style="fill:var(--c4)">接受的编辑回灌到图 → 重跑 → 迭代至收敛（带 repair trace）</text>
+
+        <text class="m" x="16" y="256">已实现：succession/ 全部 11 个模块 · core/calibration/ 全套 · cross_stage.py 受控扫描</text>
+        <text class="m" x="16" y="274">待建：闭环控制器本体 · 三类真实扰动生成器（现仅 reachability 掩码）</text>
+        <text class="m" x="16" y="292">诚实标注：M1 / M2 实测为噪声级增益，入消融附录，不作卖点</text>
+      </svg>
+      </div>
+    </div>
+  </details>
+
+  <div class="col">
+    <h3>已经跑出来的证据（来自 v3，降级复用）</h3>
+    <p>Ch4 是唯一已有大量实验结果的一章。<strong>如实报，包括不好看的：</strong></p>
+    <div class="tbl-wrap" style="max-width:none">
+      <table>
+        <thead><tr><th>机制</th><th>做了什么</th><th>结果</th><th>结论</th></tr></thead>
+        <tbody>
+          <tr><td class="num">基线</td><td>自跑 SeDGPL on CGEP-MAVEN</td><td class="num">MRR 0.1836 / strict 0.1265</td><td>主表基线，M1–M3 全挂它上</td></tr>
+          <tr><td class="num">M1</td><td>按全图 BFS 距离选边，替代「按存储序取前 20」</td><td class="num">MRR 0.1889 / strict 0.1304</td><td><b>噪声级</b>，22.83% 实例触发预算；入消融</td></tr>
+          <tr><td class="num">M2</td><td>每事件 token 加 <code>reach_anchor</code> bit</td><td class="num">MRR 0.1852 / strict 0.1290</td><td><b>持平，负结果</b>；如实入消融</td></tr>
+          <tr><td class="num">M3a</td><td>候选分数 → 保形预测集</td><td class="num">同覆盖下集合缩小 43%–68%</td><td><b>有价值</b>：强排序器的价值体现在覆盖保证下的集合收缩，不靠 MRR</td></tr>
+          <tr><td class="num">M3b</td><td>受控 reachability 扫描（真实排序 + 受控损失）</td><td class="num">naive 覆盖 0.80→0.56；cs_cond 152 vs 272（−44%）</td><td>预算方法守住覆盖；但<b>只是受控证据</b>，不等于真实图闭环</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>方法论与验收</h3>
+    <div class="tbl-wrap" style="max-width:none">
+      <table>
+        <thead><tr><th>项</th><th>内容</th></tr></thead>
+        <tbody>
+          <tr><td>数据</td><td class="num">CGEP-MAVEN（自建 2994 ECG）· ESC（EventStoryLine）</td></tr>
+          <tr><td>⚠️ 切分</td><td>ESC <b>必须用 topic 交叉验证</b>。文档级切分会泄漏——实测 topic-CV 0.0599 vs doc-split 0.1802。SeDGPL 论文公开的 19.6 依赖的就是这个泄漏切分</td></tr>
+          <tr><td>⚠️ 可比性</td><td>SeDGPL 的 MAVEN 版数据<b>未发布</b>，论文 27.9 不可比。主表必须以<b>我们自跑的 SeDGPL</b> 为基线，公开数字要标注「非同数据可比」</td></tr>
+          <tr><td>指标</td><td>MRR / Hits@k，同报乐观（SeDGPL 口径）与 strict 两套 tie-break；risk-coverage 曲线；三图误差传播曲线</td></tr>
+          <tr><td>创新落点</td><td><b>下游目标门控接受</b>（治 self-refine 掉点）+ 三图误差传播。须与 CFEP（纯 TKG 预测）和 self-healing KG（规则驱动、非下游验证）显式区分</td></tr>
+          <tr><td>止损</td><td>repaired 不优于 predicted → 退「一致性重排 + 误差传播分析」，<b>不换指标掩盖负结果</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>代码现状</h3>
+    <div class="panel">
+      <ul style="margin:0; padding-left:1.1em">
+        <li><span class="st st-done"></span><code>succession/</code> 全部 11 个模块（<code>sedgpl · model · encode · linearize · selective · structure · predictor · metrics · cross_stage · data/cgep · data/esc</code>）— 有测试、有 GPU 结果</li>
+        <li><span class="st st-done"></span><code>core/calibration/</code>（<code>aci · weighted · crc · split · propagation</code>）— 全套原语已实现并测试</li>
+        <li><span class="st st-half"></span><code>agents/protocol.py</code>（Blackboard / Orchestrator）— 目前是<b>单遍前馈</b>，闭环要把它改成回路</li>
+        <li><span class="st st-todo"></span>闭环控制器本体（下游门控接受 + 终止判据 + repair trace）— 不存在</li>
+        <li><span class="st st-todo"></span><code>cross_stage.py</code> 的三类真实扰动生成器（删/增因果边、并/拆节点、扰时序）— 现在只有 reachability 掩码</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ 04 统一创新 ============ -->
+<section id="budget">
+  <div class="col">
+    <span class="eyebrow">04 / 全篇统一</span>
+    <h2>误差预算：把「敢不敢信」算成一个数</h2>
+    <p>这是把四章串成一篇论文而不是四篇小文章的那根线。</p>
+    <p>核心洞察是一个别人容易漏掉的点：<strong>上游删边造成的错误，下游模型察觉不到。</strong></p>
+  </div>
+
+  <div class="panel col soft" style="--soft:var(--c4-soft)">
+    <p style="margin:0">Ch2 的准入如果把「受伤 → 救援」这条边删了，那么「救援」这个答案在图上<strong>根本走不到</strong>。
+    推理阶段的校准器只能看见「我排序排错了」，看不见「正确答案压根不在候选可达范围内」。
+    所以必须为这种不可达单独留一份风险预算——<strong>这就是 reachability 预算，本课题最硬的差异点。</strong></p>
+  </div>
+
+  <div class="band">
+    <figure class="fig">
+      <div style="overflow-x:auto">
+      <svg class="dg" viewBox="0 0 880 300" role="img" aria-label="误差预算示意：总预算拆成构建阶段与推理阶段两份，条件回收后推理侧预算变大、预测集变紧">
+        <text class="m" x="16" y="24">总风险预算 α_total ＝ 0.2（允许最终答错 20%）</text>
+
+        <!-- naive -->
+        <text class="s" x="16" y="60">① naive：只在推理侧校准，忽略上游剪枝</text>
+        <rect x="16" y="70" width="600" height="30" rx="2" class="bx-soft"/>
+        <rect x="16" y="70" width="600" height="30" rx="2" style="fill:var(--card-2);stroke:var(--line-strong)"/>
+        <text class="m" x="300" y="90" text-anchor="middle">α_p ＝ 0.2 全部给推理</text>
+        <text class="m" x="632" y="90" style="fill:var(--c4)">→ 实测覆盖 0.80 崩到 0.56</text>
+
+        <!-- cs_crp -->
+        <text class="s" x="16" y="140">② 预算法：union bound 拆成两份异质保证</text>
+        <rect x="16" y="150" width="220" height="30" rx="2" style="fill:var(--c2-soft);stroke:var(--c2)"/>
+        <text class="m" x="126" y="170" text-anchor="middle">α_e 构建侧 · CRC 保 FNR</text>
+        <rect x="240" y="150" width="376" height="30" rx="2" style="fill:var(--c4-soft);stroke:var(--c4)"/>
+        <text class="m" x="428" y="170" text-anchor="middle">α_p 推理侧 · 漂移自适应覆盖</text>
+        <text class="m" x="632" y="170">→ 守住覆盖，集合恒 ~270</text>
+
+        <!-- cs_cond -->
+        <text class="s" x="16" y="240">③ 条件回收：用留出集证明实际不可达率 u 更小，把省下的还给推理侧</text>
+        <rect x="16" y="250" width="96" height="30" rx="2" style="fill:var(--c2-soft);stroke:var(--c2)"/>
+        <text class="m" x="64" y="270" text-anchor="middle">u（实测）</text>
+        <rect x="116" y="250" width="500" height="30" rx="2" style="fill:var(--c4-soft);stroke:var(--c4)"/>
+        <text class="m" x="366" y="270" text-anchor="middle">α_p′ ＝ (α_total − u) / (1 − u) · 更宽松 → 预测集更紧</text>
+        <text class="m" x="632" y="270" style="fill:var(--c2)">→ 152 vs 272（−44%）</text>
+
+        <path class="ln-d" d="M112 180 L112 250" style="stroke:var(--c2)"/>
+        <path class="ln-d" d="M236 180 L116 250" style="stroke:var(--c2)" marker-end="url(#ah2)"/>
+      </svg>
+      </div>
+      <figcaption><b>怎么读这张图：</b>横条的总长度是固定的风险预算。naive 把全部预算给推理侧，结果被上游剪枝打穿；
+      预算法把预算拆成两份，用 union bound 保证端到端；条件回收进一步用实测的不可达率把多留的预算还给推理侧，
+      在同样的覆盖保证下给出更紧的预测集。虚线漏斗表示：实测不可达率 <code>u</code> 通常远小于为它预留的 <code>α_e</code>。
+      <br><br><b>端到端的界：</b>
+      <code>P(miss) ≤ P(unreachable) + P(reason miss | reachable) ≤ α_e + α_p</code>
+      <br><br>数字来自 <code>succession/cross_stage.py</code> 的受控扫描（n=954，α_total=0.2）。</figcaption>
+    </figure>
+  </div>
+
+  <div class="col">
+    <h3>新颖性的边界（硬约束，投稿安全）</h3>
+    <p>这一节是<strong>防审稿的自我约束</strong>，写作时必须遵守：</p>
+    <div class="tbl-wrap" style="max-width:none">
+      <table>
+        <thead><tr><th>主张</th><th>能不能写</th><th>为什么</th></tr></thead>
+        <tbody>
+          <tr><td>「首次把结构 / 事理当 RLVR 奖励」</td><td><b>❌ 不得写</b></td><td>MedCEG (2512.13510) 是直接先例，另有 Structure-R1 / GraphThinker / K2V。RL-reward 降级为消融</td></tr>
+          <tr><td>「跨阶段 / 选择性 conformal」是新的</td><td><b>❌ 不得写</b></td><td>C-RAG (2402.03181) / PASC (2605.18812) / SCRC (2512.12844) / CASCADE (2605.20468) 已占</td></tr>
+          <tr><td>召回⊗覆盖 + reachability 预算 + 条件回收的<b>具体组合</b></td><td>✅ 可写窄 delta</td><td>未见先例（置信度 MEDIUM）。相关工作须逐条区分上述四篇；投稿前做一次穷尽 pipeline-CP 扫</td></tr>
+          <tr><td>「用结构信息检测事实性」是新的</td><td><b>❌ 不得写</b></td><td>MAVEN-FACT 原文已证。Ch3 的 delta 在预测图鲁棒性与净化下游</td></tr>
+          <tr><td>全球首创 / first ever</td><td><b>❌ 一律不写</b></td><td>口径统一为「据我们所知」+ 显式区分先例</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">另外：方法名 <b>CS-CRP 与 SCRC (2512.12844) 撞名，需要改名</b>，方向是突出 reachability-budgeted 这个差异点。改名会牵动文档与代码多处，要一次性统一。<b>专利已归档，不再安排专利写作。</b></p>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ 05 代码地图 ============ -->
+<section id="code">
+  <div class="col">
+    <span class="eyebrow">05 / 工程</span>
+    <h2>代码地图：章节 ↔ 目录</h2>
+    <p>代码<strong>按功能域组织，目录名里绝不出现 <code>ch1/ch2/ch3</code></strong>——这是硬约束，因为章节编号会变，功能域不会。</p>
+  </div>
+
+  <div class="tbl-wrap col" style="max-width:none">
+    <table>
+      <thead><tr><th>状态</th><th>路径</th><th>属于</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="st st-done"></span></td><td><code>core/schema.py</code></td><td>全篇</td><td>冻结契约：EventNode / RelationEdge / EventGraph / Prediction。只加可选字段</td></tr>
+        <tr><td><span class="st st-done"></span></td><td><code>core/registry.py</code> · <code>config.py</code> · <code>io.py</code> · <code>graph.py</code></td><td>全篇</td><td>插件注册、配置、读写、图算法</td></tr>
+        <tr><td><span class="st st-done"></span></td><td><code>core/calibration/</code></td><td>Ch2·Ch3·Ch4</td><td>split / aci / weighted / crc / propagation。<code>tests/core/test_propagation.py</code> 是<b>测试锁，语义不可改</b></td></tr>
+        <tr><td><span class="st st-done"></span></td><td><code>core/eval/</code></td><td>全篇</td><td>coreference（Ch1 用）· relation（Ch2 用）· consistency · faithfulness</td></tr>
+        <tr><td><span class="st st-done"></span></td><td><code>succession/</code>（11 模块）</td><td>Ch4</td><td>最完整的一块：SeDGPL 基座 + M1/M2/M3 + 受控 cross-stage 扫描</td></tr>
+        <tr><td><span class="st st-half"></span></td><td><code>relations/</code></td><td>Ch2</td><td>heuristic/llm 抽取器、pairs、consistency、admission、grounding、rl 都有；<b>缺 supervised.py 与 RepairTrace</b></td></tr>
+        <tr><td><span class="st st-half"></span></td><td><code>agents/protocol.py</code></td><td>Ch4</td><td>Blackboard / Orchestrator / Verifier 已建，但目前<b>单遍前馈</b>，闭环要改成回路</td></tr>
+        <tr><td><span class="st st-half"></span></td><td><code>rl/</code> · <code>relations/rl/</code></td><td>消融</td><td>GRPO-RLVR 已实现，按新颖性复核<b>降级为机制/消融</b>，不作卖点</td></tr>
+        <tr><td><span class="st st-todo"></span></td><td>Ch1 节点规范化模块</td><td>Ch1</td><td>不存在。Phase C 的产物（含 <code>relations/data/maven_arg.py</code>）</td></tr>
+        <tr><td><span class="st st-todo"></span></td><td>Ch3 事实性模块</td><td>Ch3</td><td>不存在。Phase D 的产物（含 <code>relations/data/maven_fact.py</code>）</td></tr>
+        <tr><td><span class="st st-stale"></span></td><td><code>src/finekg/forecasting/</code></td><td>旧线</td><td><b>旧 TKG 线</b>：源码早已随 tag <code>frozen-tkg-line</code> 移出主干；仅剩的 <code>__pycache__</code> 空壳目录<b>已清理</b>（复现旧实验从 tag 取）</td></tr>
+        <tr><td><span class="st st-stale"></span></td><td><code>runs/astock_*</code></td><td>旧线</td><td><b>旧金融实体线产物</b>：Astock 与 entity-mode 已证死路；这批约 60MB 的 json/jsonl <b>已清理</b>（<code>runs/</code> 61MB → 1.1MB）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="legend col">
+    <span><span class="st st-done"></span>已实现（有测试）</span>
+    <span><span class="st st-half"></span>半成品（原语有，真实实验没跑）</span>
+    <span><span class="st st-todo"></span>待建（一行没有）</span>
+    <span><span class="st st-stale"></span>旧线痕迹（已清理）</span>
+  </div>
+
+  <div class="col">
+    <h3>三条不许违反的工程纪律</h3>
+    <div class="grid3" style="max-width:none">
+      <div class="panel tight"><h4 style="margin-top:0">冻结契约</h4>
+        <p class="note" style="margin:0"><code>EventNode</code> 零新增字段，扩展一律走 <code>metadata</code>。跨阶段类型只加可选字段，绝不复用或改义既有字段。</p></div>
+      <div class="panel tight"><h4 style="margin-top:0">registry + lazy import</h4>
+        <p class="note" style="margin:0">加方法 = <code>@register("name")</code> + 写实现，pipeline / config / 调用方零改动。torch 必须懒加载，<code>core</code> 在纯 CPU 机上要能整包导入。</p></div>
+      <div class="panel tight"><h4 style="margin-top:0">如实报数</h4>
+        <p class="note" style="margin:0">数字降了就说降。ssh 失败、工具报错，不得伪装成被观察对象的结论。这条写在 <code>CLAUDE.md</code> 里。</p></div>
+    </div>
+
+    <h3>改完代码必跑的三条命令</h3>
+    <div class="panel">
+      <pre style="margin:0; overflow-x:auto; font-family:var(--f-mono); font-size:13px; line-height:1.8"><code style="background:none;border:0;padding:0">uv run pytest                          <span style="color:var(--ink-3)"># 全绿，只增不改（当前 239 passed / 11 skipped）</span>
+uv run ruff check src tests scripts    <span style="color:var(--ink-3)"># 0 error，≤100 列</span>
+uv run finekg-smoke                    <span style="color:var(--ink-3)"># CPU 端到端冒烟</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ 06 路线 ============ -->
+<section id="roadmap">
+  <div class="col">
+    <span class="eyebrow">06 / 执行</span>
+    <h2>接下来怎么走</h2>
+    <p>九个阶段 A–I，每个都是一份「单会话自包含契约」（<code>docs/phases/PHASE_*.md</code>），
+    设计成<strong>开一个新会话、只读那一个文件就能执行完</strong>。关键路径是 <b>A → B → D → E</b>。</p>
+  </div>
+
+  <div class="band">
+    <figure class="fig">
+      <div style="overflow-x:auto">
+      <svg class="dg" viewBox="0 0 880 278" role="img" aria-label="阶段依赖图：P0 之后 A 与 C 并行，A 到 B，C 到 C2 与 D，B 与 D 汇入 E，E 分出 F、G、H，H 到 I">
+        <!-- 连线 -->
+        <path class="ln" d="M92 108 L132 80"  marker-end="url(#ah)"/>
+        <path class="ln" d="M92 124 L132 180" marker-end="url(#ah)"/>
+        <path class="ln" d="M216 78 L256 78"  marker-end="url(#ah)"/>
+        <path class="ln" d="M216 172 L256 140" marker-end="url(#ah)"/>
+        <path class="ln" d="M216 190 L256 214" marker-end="url(#ah)"/>
+        <path class="ln" d="M340 78 L400 112"  marker-end="url(#ah4)"/>
+        <path class="ln" d="M340 132 L400 128" marker-end="url(#ah4)"/>
+        <path class="ln" d="M492 112 L560 64"  marker-end="url(#ah)"/>
+        <path class="ln" d="M492 124 L560 124" marker-end="url(#ah)"/>
+        <path class="ln" d="M492 136 L560 186" marker-end="url(#ah)"/>
+        <path class="ln" d="M652 190 L700 190" marker-end="url(#ah)"/>
+
+        <!-- 节点 -->
+        <g><rect class="bx" x="16" y="96" width="76" height="40" rx="3" style="fill:var(--c2-soft);stroke:var(--c2)"/>
+           <text class="t" x="54" y="114" text-anchor="middle">P0</text><text class="s" x="54" y="129" text-anchor="middle">主数据 ✅</text></g>
+
+        <g><rect class="bx" x="132" y="56" width="84" height="44" rx="3" style="fill:var(--c4-soft);stroke:var(--c4);stroke-width:2"/>
+           <text class="t" x="174" y="76" text-anchor="middle">A</text><text class="s" x="174" y="91" text-anchor="middle">判别式抽取</text></g>
+        <g><rect class="bx" x="132" y="160" width="84" height="40" rx="3"/>
+           <text class="t" x="174" y="178" text-anchor="middle">C</text><text class="s" x="174" y="193" text-anchor="middle">规范节点</text></g>
+
+        <g><rect class="bx" x="256" y="56" width="84" height="44" rx="3"/>
+           <text class="t" x="298" y="76" text-anchor="middle">B</text><text class="s" x="298" y="91" text-anchor="middle">一致+修复</text></g>
+        <g><rect class="bx" x="256" y="112" width="84" height="40" rx="3"/>
+           <text class="t" x="298" y="130" text-anchor="middle">D</text><text class="s" x="298" y="145" text-anchor="middle">事实性净化</text></g>
+        <g><rect class="bx" x="256" y="196" width="84" height="40" rx="3"/>
+           <text class="t" x="298" y="214" text-anchor="middle">C2</text><text class="s" x="298" y="229" text-anchor="middle">跨文档</text></g>
+
+        <g><rect class="bx" x="400" y="92" width="92" height="64" rx="3" style="fill:var(--c4-soft);stroke:var(--c4);stroke-width:2"/>
+           <text class="t" x="446" y="114" text-anchor="middle">E ★</text>
+           <text class="s" x="446" y="130" text-anchor="middle">闭环 + 传播</text>
+           <text class="s" x="446" y="146" text-anchor="middle">headline</text></g>
+
+        <g><rect class="bx" x="560" y="44" width="92" height="40" rx="3"/>
+           <text class="t" x="606" y="62" text-anchor="middle">F</text><text class="s" x="606" y="77" text-anchor="middle">端到端预算</text></g>
+        <g><rect class="bx" x="560" y="104" width="92" height="40" rx="3"/>
+           <text class="t" x="606" y="122" text-anchor="middle">G</text><text class="s" x="606" y="137" text-anchor="middle">金融应用层</text></g>
+        <g><rect class="bx" x="560" y="170" width="92" height="40" rx="3"/>
+           <text class="t" x="606" y="188" text-anchor="middle">H</text><text class="s" x="606" y="203" text-anchor="middle">多种子消融</text></g>
+        <g><rect class="bx" x="700" y="170" width="76" height="40" rx="3"/>
+           <text class="t" x="738" y="188" text-anchor="middle">I</text><text class="s" x="738" y="203" text-anchor="middle">写作</text></g>
+
+        <text class="m" x="16" y="36" style="fill:var(--c4)">粗框 = 关键路径　A 未完成，B / D / E 的真实图实验全部阻塞</text>
+        <text class="m" x="16" y="268">依赖来源：docs/phases/README.md 的阶段依赖图</text>
+      </svg>
+      </div>
+      <figcaption>关键路径是 <b>A → B → E</b>。C（Ch1 规范节点）与 A 并行、互不阻塞，但 D（Ch3 净化）要等 C 给出规范节点，
+      E 则要等 B 和 D 都到位——所以 A 一天不做完，右半张图全部停摆。</figcaption>
+    </figure>
+  </div>
+
+  <div class="tbl-wrap col" style="max-width:none">
+    <table>
+      <thead><tr><th>阶段</th><th>章</th><th>一句话目标</th><th>完成门槛</th><th>状态</th><th>GPU</th></tr></thead>
+      <tbody>
+        <tr><td class="num">P0</td><td>—</td><td>主数据与溯源</td><td>hash / manifest 可核</td><td><span class="st st-done"></span>完成</td><td>—</td></tr>
+        <tr><td class="num"><b>A</b></td><td>Ch2</td><td>判别式关系抽取器，金标节点上跑通</td><td class="num">causal F1 ≥25（目标 30–37）· subevent ≥20</td><td><span class="st st-todo"></span><b>未开始 · 总瓶颈</b></td><td>重</td></tr>
+        <tr><td class="num">B</td><td>Ch2</td><td>全局一致解码 + repair trace + CRC 准入</td><td>violation↓ · 分层 FNR · ECG 可重建率↑</td><td><span class="st st-half"></span>原语有，实验未做</td><td>轻</td></tr>
+        <tr><td class="num">C</td><td>Ch1</td><td>证据 + 不确定性的规范事件节点</td><td class="num">检测 F1 ~60+ · MUC ~86 · 误合并率↓ · ECE</td><td><span class="st st-todo"></span>未开始</td><td>轻</td></tr>
+        <tr><td class="num">C2</td><td>Ch1</td><td>跨文档泛化（ECB+ / CLES）</td><td>对比 SECURE / MEET / DIE-EC</td><td><span style="white-space:nowrap"><span class="st st-todo"></span>未开始</span>（CLES 未取）</td><td>轻</td></tr>
+        <tr><td class="num">D</td><td>Ch3</td><td>事实性检测 + 图净化</td><td class="num">macro-F1 ≥47.6 · 掉点量化 · 净化增益</td><td><span class="st st-todo"></span>未开始</td><td>轻</td></tr>
+        <tr><td class="num"><b>E</b></td><td>Ch4</td><td>下游门控闭环 + 三图误差传播</td><td>repaired &gt; predicted · 误差传播曲线</td><td><span class="st st-half"></span>基座有，控制器未做</td><td>重</td></tr>
+        <tr><td class="num">F</td><td>跨章</td><td>端到端误差预算</td><td>显式前提下的界 · naive 对照</td><td><span class="st st-half"></span>原语有</td><td>轻</td></tr>
+        <tr><td class="num">G</td><td>应用</td><td>金融迁移（CCKS-FinCausal + SARGE）</td><td>金融构建→预测案例</td><td><span class="st st-half"></span>adapter 有</td><td>中</td></tr>
+        <tr><td class="num">H</td><td>全篇</td><td>多种子 13/17/42 + 消融 + 新颖性扫</td><td>主表 mean±std · 改名定稿</td><td><span class="st st-todo"></span>等 A–F</td><td>重</td></tr>
+        <tr><td class="num">I</td><td>—</td><td>论文写作</td><td>初稿 + 终辩材料</td><td><span class="st st-todo"></span>等主实验</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <h3>下一步就三件事</h3>
+    <ol>
+      <li>照 <code>docs/phases/PHASE_A_ch2_supervised_extractor.md</code>：<strong>先写 CPU 候选／标签／registry 测试，再实现懒加载的判别式抽取器。</strong></li>
+      <li>本地验收全绿后，再给出远程训练的完整命令、工作目录、选卡、时长和产物。</li>
+      <li>A 达标立刻进 B，先证明 predicted ECG 的可达性可用，<strong>再</strong>投入 C / D / E。主闭环没通之前不扩张实验面。</li>
+    </ol>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============ 07 诚实区 ============ -->
+<section id="honest">
+  <div class="col">
+    <span class="eyebrow">07 / 如实</span>
+    <h2>诚实区：已知的负结果与止损线</h2>
+    <p>这一节存在的意义是防止未来的自己（或者 agent）自欺。<strong>下面每一条都是实测，不是预期。</strong></p>
+
+    <h3>已经撞上的两堵墙</h3>
+    <div class="grid2" style="max-width:none">
+      <div class="panel">
+        <h4 style="margin-top:0">墙一 · M1 / M2 都是噪声级</h4>
+        <p class="note" style="margin:0">按 BFS 距离选边（M1）和加 <code>reach_anchor</code> 结构 bit（M2），
+        GPU A/B 实测 ΔMRR 分别是 +0.005 和 −0.0015 —— <b>都在噪声范围内</b>。
+        两者如实进消融附录，不当卖点。M2 的结论是明确的负结果。</p>
+      </div>
+      <div class="panel">
+        <h4 style="margin-top:0">墙二 · 抽取器因果召回 0.4%</h4>
+        <p class="note" style="margin:0">生成式 SFT+GRPO 在 MAVEN-ERE 上 causal 3/810、subevent 0/139。
+        构建版 ECG 直接退化到不可扫描。所以 M3b 只能落成<b>受控扫描</b>而非真实图闭环。
+        这个 0.4% 本身作为诚实数据点写进论文。</p>
+      </div>
+    </div>
+
+    <h3>数据口径上的坑（写作时会被审稿人抓）</h3>
+    <ul>
+      <li><strong>ESC 文档级切分会泄漏。</strong>同一 topic 就是同一个故事。实测 topic-CV 0.0599 vs doc-split 0.1802 ≈ 复现的 0.196 —— SeDGPL 论文公开的 19.6 依赖的正是这个泄漏切分。协议一律用 topic 交叉验证。</li>
+      <li><strong>SeDGPL 的 MAVEN 版数据没发布</strong>，论文里的 27.9 不可比。主表必须用我们自跑的基线，引用公开数字要显式标注「原论文数据构建，非同数据可比」。</li>
+      <li><strong>MAVEN 系列官方 test 标签隐藏</strong>，走 CodaLab。本地一律 train 调参、valid 报数，test 不进本地调参。</li>
+      <li><strong>词表 transductive 是有意为之</strong>：<code>&lt;a_i&gt;</code> token 清单覆盖 train+test，与 SeDGPL 的 <code>to_add.json</code> 一致——只有 token 清单跨切分，没有标签／图／梯度泄漏。这点要在论文里主动说明。</li>
+    </ul>
+
+    <h3>每章的止损线（先写好，免得到时候自我说服）</h3>
+    <div class="tbl-wrap" style="max-width:none">
+      <table>
+        <thead><tr><th>如果</th><th>那么退到</th></tr></thead>
+        <tbody>
+          <tr><td>Phase A causal F1 &lt;10%，类不平衡／候选范围／编码方式都排查无果</td><td>保留受控模拟；Ch2 收缩为一致性 + 修复 + 风控，Ch4 退受控误差传播</td></tr>
+          <tr><td>Ch3 净化没有下游收益</td><td>保留事实性检测与预测图鲁棒性分析，<b>不宣称净化有效</b></td></tr>
+          <tr><td>Ch4 repaired 不优于 predicted</td><td>退为一致性重排 + 误差传播分析，<b>不换指标掩盖负结果</b></td></tr>
+          <tr><td>发现 CS-CRP / reachability 组合有直接先例</td><td>重新限定范围或改名，<b>不写「首次」</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="block" style="border-left-color:var(--c2)">
+      <div class="hd"><span class="m" style="color:var(--c2)">口径</span>这份文档的数字来源</div>
+      <p class="note" style="margin:0">全部取自 <code>docs/SPEC.md</code>（设计总纲）与 <code>docs/TODO.md</code>（实时状态，更新于 2026-07-22），
+      代码现状为直接检查 <code>src/finekg/</code> 得到。<strong>SPEC 与 TODO 冲突时以 SPEC 为准；本页与它们冲突时，以它们为准。</strong></p>
+    </div>
+  </div>
+</section>
+
+</main>
+</div>

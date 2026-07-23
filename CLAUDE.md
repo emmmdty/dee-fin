@@ -2,7 +2,7 @@
 
 > **`CLAUDE.md` 与 `AGENTS.md` 内容保持一致**（Claude Code 读 `CLAUDE.md`，Codex 读 `AGENTS.md`）。
 > **改一份必须同步另一份。** 设计总纲 → `docs/SPEC.md`｜实时状态 → `docs/TODO.md`｜工程坑 →
-> `docs/ENGINEERING_NOTES.md`｜服务器运维 → `docs/GPU_RUNBOOK.md`。
+> `docs/ENGINEERING_NOTES.md`｜服务器运维 → `docs/GPU_RUNBOOK.md`｜三端协作流水线 → `docs/PIPELINE.md`。
 > **当前唯一研究主线是 v4 四章（身份 → 结构 → 事实 → 传播/下游）**；SARGE 属金融应用层，
 > 旧 TKG 线只在 tag `frozen-tkg-line` 保留。出现冲突时以 `docs/SPEC.md` 为准。
 
@@ -24,8 +24,9 @@ uv run finekg-smoke    # CPU 端到端冒烟
 - SSH `gpu-4090`（cpolar 隧道，间歇性掉线）。**ssh 失败 ≠ 远端进程死亡**：三态判活（ALIVE / GONE /
   ssh 失败），只有成功 ssh 读到进程 GONE 才算结束。
 - 远端根 `/data/TJK/Fin-EKG`；远端 uv `/home/TJK/.local/bin/uv`；远端 Python `.venv/bin/python`。
-- **远端不是 git 仓库**：同步用 `scp`/`rsync` 指定文件 + `sha256` 双端核；**禁 `rsync --delete`**
-  （会删 `runs/`、`nvmlshim/` 等 remote-only 产物）。
+- **代码同步走 git**：远端 `git fetch && git reset --hard origin/main` 拉 `github.com/emmmdty/dee-fin`
+  （PUBLIC，免 token）；**数据/产物/大文件走 `scp` + `sha256` 双端核**（数据不进 git）。**禁 `rsync --delete`
+  与远端 `git clean -fdx`**（会删 `runs/`、`nvmlshim/` 等 remote-only 产物）。完整闭环 + 远端首次 git 化见 `docs/PIPELINE.md`。
 - 非交互 ssh 里 `python`/`jq`/`rg`/`tmux` 可能不在 PATH；用绝对路径 / `bash -lc` / `sed`·`grep`·`find`。
 
 ## GPU 运行约束

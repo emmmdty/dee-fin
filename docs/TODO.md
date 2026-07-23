@@ -1,6 +1,6 @@
 # Fin-EKG TODO / 实时状态
 
-> 更新于 **2026-07-22**。本文件只记录 v4 的当前执行位置、已验证证据和下一步；设计定义见
+> 更新于 **2026-07-23**。本文件只记录 v4 的当前执行位置、已验证证据和下一步；设计定义见
 > [`SPEC.md`](SPEC.md)，阶段验收见 [`phases/`](phases/README.md)，历史路线见 `archive/`。
 
 ## 当前结论
@@ -12,6 +12,10 @@
 - **执行状态**：P0 数据基本完成；Phase A 尚未实现。Phase B–E 的真实图实验依赖 A。
 - **旧线定位**：SeDGPL、M1/M2、CS-CRP 和受控 cross-stage 扫描保留为 Ch4 可靠性模块；SARGE
   保留为金融应用层；旧实体中心 TKG 只在 tag `frozen-tkg-line`。
+- **2026-07-23 联网复核**（结论并入 [`EXPERIMENTS.md`](EXPERIMENTS.md) + SPEC §4.5/§5）：数据/SOTA/baseline/
+  评测协议全部真实可得，方案可执行；三个必修点——① **Phase A** 唯一硬骨头（0.4%→SOTA 30–37，有文献路线）；
+  ② **Ch4 门控 oracle 澄清**（SPEC §4.5）；③ **新竞品 DeepRefine 2605.10488** 收窄 headline（SPEC §5）。
+  Ch4 baseline 已补 2025 方法（Semantic Relation Experts 2506.06910 / 现代 LLM），弃用旧 Llama3/GPT-3.5。
 
 ## 已完成并有证据
 
@@ -57,6 +61,9 @@
 2. 本地验收后，在启动远程长训练前单独给出完整命令、工作目录、选卡、时长和产物，并等待明确授权。
 3. Phase A 达标后立即进入 B，先证明 predicted ECG 的 reachability 可用，再投入 C/D/E。
 4. 多种子和进一步调 M1/M2 放到 Phase H；主闭环未通前不扩张实验面。
+5. 每章开跑前照 [`EXPERIMENTS.md`](EXPERIMENTS.md) 定 baseline（新老搭配）+ 消融矩阵 + 评测档；Ch4 主表
+   纳入 2025 近期方法（Semantic Relation Experts / 现代 LLM），不再用旧 Llama3/GPT-3.5。
+6. 实现 Ch4 闭环控制器前，**先定死门控信号来源**（SPEC §4.5：无标签代理 or 离线诊断定位），别默认用金标 MRR。
 
 ## 止损与人工判断
 
@@ -64,4 +71,5 @@
   一致性/修复/风控，Ch4 收缩为受控误差传播。
 - Ch3 净化无下游收益：保留事实性检测与 predicted-input 鲁棒性分析，不宣称净化有效。
 - Ch4 repaired 不优于 predicted：退为一致性重排 + 误差传播分析，不更换指标掩盖负结果。
+- Ch4 门控只能靠金标 MRR（无可用无标签代理）：显式改定位为「离线构建期质检工具」，不声称在线自愈（SPEC §4.5）。
 - 发现 CS-CRP/reachability 组合有直接先例：重新限定或更换命名，不写“首次”。

@@ -92,7 +92,9 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--neg-ratio", type=float, default=3.0, help="negatives per positive")
     parser.add_argument("--max-distance", type=int, default=None, help="None = document-level")
-    parser.add_argument("--max-length", type=int, default=256)
+    parser.add_argument(
+        "--max-length", type=int, default=512, help="512 covers the longest sentence (322 tokens)"
+    )
     parser.add_argument("--seed", type=int, default=13)
     args = parser.parse_args()
 

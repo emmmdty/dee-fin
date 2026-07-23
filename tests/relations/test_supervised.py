@@ -75,6 +75,15 @@ def test_locate_trigger_token_respects_word_boundaries():
         sup.locate_trigger_token("armed police", "arm", offsets)
 
 
+def test_locate_trigger_token_raises_when_truncated_away():
+    # A trigger past the tokenised span (long sentence + truncation) must raise
+    # rather than pool a wrong token. max_length=512 is what keeps this from
+    # firing on MAVEN-ERE (longest sentence = 322 BPE tokens).
+    offsets = [(0, 0), (0, 5), (0, 0)]  # truncation kept only the first word
+    with pytest.raises(ValueError, match="truncated"):
+        sup.locate_trigger_token("armed police officers", "officers", offsets)
+
+
 def test_extract_builds_grounded_edges_from_scores(monkeypatch):
     ex = relation_extractors.create("supervised")
     nodes = [_node("a", 0, 0), _node("b", 1, 0)]

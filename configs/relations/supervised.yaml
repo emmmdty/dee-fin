@@ -8,7 +8,7 @@ relations:
   extractor_kwargs:
     checkpoint_path: runs/relations/supervised_maven
     max_distance: null           # null = document-level candidates (no window)
-    max_length: 256
+    max_length: 512           # longest MAVEN-ERE sentence = 1691 chars = 322 BPE tokens
   require_evidence: true         # edges carry both endpoints' trigger spans
   consistency: greedy
   consistency_kwargs:

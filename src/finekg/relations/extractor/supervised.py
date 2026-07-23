@@ -145,13 +145,17 @@ class SupervisedRelationExtractor(RelationExtractor):
 
     The encoder + heads are torch-backed and loaded lazily on the first `extract`;
     `__init__` stays torch-free so the pipeline instantiates on CPU.
+
+    `max_length` is 512 because MAVEN-ERE's longest sentence is 1691 chars = 322 BPE
+    tokens: at 256 such a sentence is truncated before its trigger, and
+    `locate_trigger_token` (correctly) refuses to pool a wrong token instead.
     """
 
     def __init__(
         self,
         checkpoint_path: str | None = None,
         max_distance: int | None = None,
-        max_length: int = 256,
+        max_length: int = 512,
     ) -> None:
         self.checkpoint_path = checkpoint_path
         self.max_distance = max_distance

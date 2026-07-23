@@ -1,11 +1,14 @@
 """CPU tests for the discriminative supervised relation extractor (Phase A).
 
-Everything here runs without torch: registry wiring, lazy-import discipline,
-document-level candidate enumeration, and edge construction from injected
-scores (the model itself is torch-guarded and tested under `pytest.importorskip`).
+Registry wiring, torch-free construction, document-level candidate enumeration
+and edge building from injected scores all run without torch. The model itself
+(`PairClassifier`, pair features) is torch-guarded and tested under
+`pytest.importorskip`, so it exercises on the GPU server and skips on CPU.
 """
 
 from __future__ import annotations
+
+import pytest
 
 import finekg.relations.extractor.supervised as sup
 from finekg.core.schema import EventNode, EvidenceSpan
@@ -28,10 +31,12 @@ def test_supervised_registered():
     assert "supervised" in relation_extractors
 
 
-def test_module_imports_without_torch():
-    # Lazy-import discipline: the module must not bind torch at import time,
-    # so the whole package imports on a CPU-only machine without the llm extra.
-    assert not hasattr(sup, "torch")
+def test_extractor_instantiates_torch_free():
+    # __init__ must not build the model (lazy on first extract), so the pipeline
+    # constructs on a CPU box; the module follows the succession/model.py guard.
+    ex = relation_extractors.create("supervised", checkpoint_path=None)
+    assert ex._model is None
+    assert hasattr(sup, "TORCH_AVAILABLE")
 
 
 def test_candidate_pairs_document_level_all_ordered_pairs():
@@ -70,3 +75,17 @@ def test_extract_no_prediction_yields_no_edge(monkeypatch):
         lambda self, ns, pairs, context: {},
     )
     assert ex.extract([_node("a", 0, 0), _node("b", 1, 0)]) == []
+
+
+def test_pair_classifier_and_features_shapes():
+    torch = pytest.importorskip("torch")
+    from finekg.relations.extractor.supervised import PairClassifier, _pair_features
+
+    h = torch.zeros(3, 8)
+    feats = _pair_features(h, h)
+    assert feats.shape == (3, 32)  # [h; h; h*h; |h-h|] = 4 * 8
+    model = PairClassifier(8, {"temporal": 7, "causal": 3, "subevent": 2})
+    out = model(feats)
+    assert out["causal"].shape == (3, 3)
+    assert out["temporal"].shape == (3, 7)
+    assert out["subevent"].shape == (3, 2)

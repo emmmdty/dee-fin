@@ -91,6 +91,14 @@ def main() -> int:
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--neg-ratio", type=float, default=3.0, help="negatives per positive")
+    parser.add_argument(
+        "--class-weights",
+        choices=("inverse", "none"),
+        default="inverse",
+        help="class-imbalance arm (PHASE_A ablation): inverse-frequency CE weights, or off. "
+        "Stacking it on top of aggressive negative downsampling double-compensates and "
+        "collapses precision.",
+    )
     parser.add_argument("--max-distance", type=int, default=None, help="None = document-level")
     parser.add_argument(
         "--max-length", type=int, default=512, help="512 covers the longest sentence (322 tokens)"
@@ -113,7 +121,7 @@ def main() -> int:
     rows = downsample_negatives(
         build_training_rows(docs, args.max_distance), args.neg_ratio, args.seed
     )
-    weights = class_weights(rows)
+    weights = class_weights(rows) if args.class_weights == "inverse" else None
     docs_by_id = {d.doc_id: d for d in docs}
     rows_by_doc: dict[str, list[PairExample]] = {}
     for row in rows:
@@ -126,7 +134,9 @@ def main() -> int:
     encoder = AutoModel.from_pretrained(args.model).to(device)
     counts = {fam: len(subs) for fam, subs in FAMILY_SUBTYPES.items()}
     heads = PairClassifier(encoder.config.hidden_size, counts).to(device)
-    weight_tensors = {f: torch.tensor(w, device=device) for f, w in weights.items()}
+    weight_tensors = (
+        {f: torch.tensor(w, device=device) for f, w in weights.items()} if weights else {}
+    )
     label_index = {f: {s: i for i, s in enumerate(subs)} for f, subs in FAMILY_SUBTYPES.items()}
     optimiser = torch.optim.AdamW([*encoder.parameters(), *heads.parameters()], lr=args.lr)
 
@@ -154,7 +164,7 @@ def main() -> int:
                     device=device,
                 )
                 loss = loss + F.cross_entropy(
-                    logits[family], target, weight=weight_tensors[family]
+                    logits[family], target, weight=weight_tensors.get(family)
                 )
             optimiser.zero_grad()
             loss.backward()

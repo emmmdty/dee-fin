@@ -9,7 +9,8 @@
   下游门控闭环修复与构建误差传播。
 - **当前关键路径**：Phase A——在金标事件节点上实现判别式 `supervised` 关系抽取器，解决生成式
   SFT+GRPO 探针的 causal recall 0.4%（3/810）和 subevent 0%（0/139）瓶颈。
-- **执行状态**：P0 数据基本完成；Phase A 尚未实现。Phase B–E 的真实图实验依赖 A。
+- **执行状态**：P0 数据完成；**Phase A 代码完成并冒烟验证通过**（判别式 supervised 抽取器 + 训练脚本 +
+  评测接线，CPU 测试全绿），全量训练进行中、**真实 F1 未出**。Phase B–E 的真实图实验依赖 A。
 - **旧线定位**：SeDGPL、M1/M2、CS-CRP 和受控 cross-stage 扫描保留为 Ch4 可靠性模块；SARGE
   保留为金融应用层；旧实体中心 TKG 只在 tag `frozen-tkg-line`。
 - **2026-07-23 联网复核**（结论并入 [`EXPERIMENTS.md`](EXPERIMENTS.md) + SPEC §4.5/§5）：数据/SOTA/baseline/
@@ -28,6 +29,19 @@
   就位，尚无项目 processed 输出，不能写成“已预处理”。详见 `DATASET_SURVEY.md`。
 - 2026-07-22 当前主干验证：`239 passed / 11 skipped`、Ruff 0 error、`finekg-smoke` 通过。
 
+### Phase A 实施（2026-07-23，代码层已完成）
+
+- `@register("supervised")` 判别式抽取器：文档级候选与标签**复用 `relations/pairs.py`**、torch-lazy（CPU 可
+  导入/实例化）、`extract` 产 evidence-grounded 边；训练脚本 `train_supervised_relations.py`（确定性负采样 +
+  逆频类权重 + 加权 CE）；`configs/relations/supervised.yaml` 接**既有两段式评测**
+  （`evaluate_relations --dump-predictions` → `evaluate_relation_pairs`，零新写评测脚本）。
+  CPU 测试 10 passed + 1 torch-skip；全量 pytest / ruff / finekg-smoke 全绿。
+- **修复触发词定位缺陷**：MAVEN-ERE `trigger_word` 是小写形式而句子保留原始大小写，句首/专名触发词精确
+  `find` 必然失配（实测 train_smoke 6/919 = 0.65%、valid_smoke 4/637 = 0.63%）；改**大小写不敏感 + 词边界**
+  后降为 **0.00%**。该问题由训练侧 fail-fast 暴露——loader 对同样失配是容忍的（记 `span=(0,0)`）。
+- GPU 冒烟训练（30 docs / 1 epoch，card 1）跑通并落完整 checkpoint；全量训练（2913 docs × 3 epochs）进行中。
+  **真实 causal/subevent F1 尚未产出**，出结果后如实回填（对照生成式探针的 0.4%），未达标按 PHASE_A 止损处理。
+
 ### Ch4 先行模块（来自 v3，降级复用）
 
 - **SeDGPL 自跑基线**：CGEP-MAVEN 单折 MRR 0.1836 / strict 0.1265，n=1908。
@@ -43,7 +57,7 @@
 | 阶段 | 任务 | 当前状态 | 完成门槛 |
 |---|---|---|---|
 | P0 | 主数据与溯源 | ✅ 主干数据完成；扩展数据部分仅 raw | 主数据 hash/manifest 可核 |
-| A | Ch2 判别式关系抽取 | ⬜ 未开始；当前总瓶颈 | causal F1 ≥25（目标 30–37），subevent ≥20 |
+| A | Ch2 判别式关系抽取 | 🟡 代码完成 + 冒烟通过；全量训练中，F1 未出 | causal F1 ≥25（目标 30–37），subevent ≥20 |
 | B | 一致性、repair trace、风险准入 | 🟡 consistency/CRC 已有；repair trace 和真实图实验未做 | violation↓、分层 FNR、ECG 可重建率↑ |
 | C | Ch1 规范事件节点 | ⬜ 未开始；schema/coref/calibration 可复用 | 检测 F1、CoNLL、误合并率、ECE |
 | C2 | Ch1 跨文档泛化 | ⬜ 未开始；ECB+ raw 已有，CLES 未取 | ECB+/CLES 对比 SECURE/MEET/DIE-EC |
@@ -56,8 +70,8 @@
 
 ## 下一步
 
-1. 按 [`PHASE_A_ch2_supervised_extractor.md`](phases/PHASE_A_ch2_supervised_extractor.md) 先写 CPU
-   候选/标签/registry 测试，再实现 lazy-import 的判别式抽取器。
+1. ~~实现 Phase A 判别式抽取器~~ ✅ 代码完成、冒烟通过。**等全量训练结束跑两段式评测**，如实回填
+   causal/subevent P/R/F1（对照生成式 0.4%）；未达标按 PHASE_A 止损条款处理。
 2. 本地验收后，在启动远程长训练前单独给出完整命令、工作目录、选卡、时长和产物，并等待明确授权。
 3. Phase A 达标后立即进入 B，先证明 predicted ECG 的 reachability 可用，再投入 C/D/E。
 4. 多种子和进一步调 M1/M2 放到 Phase H；主闭环未通前不扩张实验面。

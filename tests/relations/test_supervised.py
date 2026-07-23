@@ -8,6 +8,8 @@ and edge building from injected scores all run without torch. The model itself
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import finekg.relations.extractor.supervised as sup
@@ -98,3 +100,18 @@ def test_pair_classifier_and_features_shapes():
     assert out["causal"].shape == (3, 3)
     assert out["temporal"].shape == (3, 7)
     assert out["subevent"].shape == (3, 2)
+
+
+def test_supervised_config_wires_the_pipeline_on_cpu():
+    # Loads the real config: checks its syntax, that the pipeline selects the
+    # supervised extractor, and that construction needs no torch (model is lazy).
+    from finekg.core.config import load_config
+    from finekg.relations import RelationPipeline, RelationPipelineConfig
+
+    repo = Path(__file__).resolve().parents[2]
+    config = RelationPipelineConfig.from_dict(
+        load_config(repo / "configs" / "relations" / "supervised.yaml")
+    )
+    assert config.extractor == "supervised"
+    pipeline = RelationPipeline(config)
+    assert type(pipeline.extractor).__name__ == "SupervisedRelationExtractor"

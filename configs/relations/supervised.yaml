@@ -1,0 +1,19 @@
+# Relation stage — Phase A discriminative supervised pair classifier (GPU).
+# Trained by scripts/train_supervised_relations.py, then scored in the
+# pair-classification setting:
+#   evaluate_relations.py --config this --dump-predictions runs/pred_supervised.jsonl
+#   evaluate_relation_pairs.py --predictions runs/pred_supervised.jsonl --gold-path <valid>
+relations:
+  extractor: supervised
+  extractor_kwargs:
+    checkpoint_path: runs/relations/supervised_maven
+    max_distance: null           # null = document-level candidates (no window)
+    max_length: 256
+  require_evidence: true         # edges carry both endpoints' trigger spans
+  consistency: greedy
+  consistency_kwargs:
+    close_temporal: true
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/valid.jsonl

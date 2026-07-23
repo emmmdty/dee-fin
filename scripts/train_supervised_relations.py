@@ -13,9 +13,11 @@ Data preparation (`build_training_rows` / `downsample_negatives` / `class_weight
 pure Python and unit-tested on CPU; training needs the `llm` extra + a GPU:
 
     uv run --extra llm python scripts/train_supervised_relations.py \
-        --train data/raw/maven_ere/train.jsonl \
+        --train data/processed/maven_ere/train.jsonl \
         --model roberta-base \
         --output runs/relations/supervised_maven
+
+`train_smoke.jsonl` / `valid_smoke.jsonl` are the small subsets for a quick check.
 """
 
 from __future__ import annotations

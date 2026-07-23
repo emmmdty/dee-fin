@@ -240,9 +240,12 @@ class SupervisedRelationExtractor(RelationExtractor):
         if not doc_text:
             raise ValueError("supervised: extract needs context.doc_text for the document")
         embs = self._encode_mentions(nodes, doc_text)
-        feats = torch.stack([_pair_features(embs[h], embs[t]) for h, t in pairs])
+        # Build the pair feature for the whole candidate set at once: doing it per
+        # pair launches a kernel per candidate (thousands in a single document).
+        head_emb = torch.stack([embs[h] for h, _ in pairs])
+        tail_emb = torch.stack([embs[t] for _, t in pairs])
         with torch.no_grad():
-            logits = self._model(feats.to(self._device))
+            logits = self._model(_pair_features(head_emb, tail_emb))
         result: dict[tuple[str, str], dict[str, tuple[str, float]]] = {}
         for family, subtypes in FAMILY_SUBTYPES.items():
             probs = torch.softmax(logits[family], dim=-1)

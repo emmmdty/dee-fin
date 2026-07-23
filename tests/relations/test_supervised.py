@@ -41,6 +41,15 @@ def test_extractor_instantiates_torch_free():
     assert hasattr(sup, "TORCH_AVAILABLE")
 
 
+def test_ensure_model_fails_fast_without_torch_or_checkpoint():
+    # No silent degradation to an untrained model: on a CPU box this names the
+    # llm extra; with torch installed it refuses because checkpoint_path is None.
+    ex = relation_extractors.create("supervised", checkpoint_path=None)
+    with pytest.raises((RuntimeError, ValueError)) as excinfo:
+        ex._ensure_model()
+    assert "llm" in str(excinfo.value) or "checkpoint_path" in str(excinfo.value)
+
+
 def test_candidate_pairs_document_level_all_ordered_pairs():
     ex = relation_extractors.create("supervised")
     nodes = [_node("a", 0, 0), _node("b", 0, 5), _node("c", 1, 0)]
@@ -124,6 +133,11 @@ def test_pair_classifier_and_features_shapes():
     assert out["causal"].shape == (3, 3)
     assert out["temporal"].shape == (3, 7)
     assert out["subevent"].shape == (3, 2)
+
+    # The batched path (what extract/training use) must equal per-pair construction.
+    a, b = torch.randn(4, 8), torch.randn(4, 8)
+    per_pair = torch.stack([_pair_features(a[i], b[i]) for i in range(4)])
+    assert torch.allclose(_pair_features(a, b), per_pair)
 
 
 def test_supervised_config_wires_the_pipeline_on_cpu():

@@ -136,16 +136,17 @@ def main() -> int:
         doc_ids = list(rows_by_doc)
         random.Random(args.seed + epoch).shuffle(doc_ids)
         running = 0.0
-        for doc_id in doc_ids:
+        for seen, doc_id in enumerate(doc_ids, start=1):
             doc = docs_by_id[doc_id]
             embs = encode_trigger_reps(
                 encoder, tokenizer, doc.nodes, doc.doc_text, args.max_length, device
             )
             doc_rows = rows_by_doc[doc_id]
-            feats = torch.stack(
-                [_pair_features(embs[r.head_id], embs[r.tail_id]) for r in doc_rows]
-            )
-            logits = heads(feats)
+            # One batched pair feature per document: per-pair construction launches
+            # a kernel per candidate (thousands in a single document).
+            head_emb = torch.stack([embs[r.head_id] for r in doc_rows])
+            tail_emb = torch.stack([embs[r.tail_id] for r in doc_rows])
+            logits = heads(_pair_features(head_emb, tail_emb))
             loss = torch.zeros((), device=device)
             for family in FAMILY_SUBTYPES:
                 target = torch.tensor(
@@ -159,6 +160,12 @@ def main() -> int:
             loss.backward()
             optimiser.step()
             running += float(loss)
+            if seen % 500 == 0:  # long run: report progress inside the epoch too
+                print(
+                    f"[train] epoch {epoch} {seen}/{len(doc_ids)} docs "
+                    f"running_loss={running / seen:.4f}",
+                    flush=True,
+                )
         print(f"[train] epoch {epoch} mean_loss={running / max(1, len(doc_ids)):.4f}", flush=True)
 
     args.output.mkdir(parents=True, exist_ok=True)

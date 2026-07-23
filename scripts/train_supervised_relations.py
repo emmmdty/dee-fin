@@ -61,20 +61,24 @@ def downsample_negatives(
     return positives + random.Random(seed).sample(negatives, keep)
 
 
-def class_weights(rows: list[PairExample], alpha: float = 1.0) -> dict[str, list[float]]:
+def class_weights(
+    rows: list[PairExample], alpha: float | dict[str, float] = 1.0
+) -> dict[str, list[float]]:
     """Inverse-frequency weight per label per family, tempered by `alpha`.
 
     The weight is `(total / (k * count)) ** alpha`: alpha=1 is plain inverse
-    frequency, alpha=0 is uniform (off), alpha=0.5 the usual middle ground.
+    frequency, alpha=0 is uniform (off), alpha=0.5 the usual middle ground. `alpha`
+    may be a single value (all families) or a per-family dict.
 
     Tempering matters because the families differ in sparsity by ~39:3.4:1
-    (temporal:causal:subevent gold). Full inverse weighting makes the dense
-    families over-predict (precision collapses); dropping it entirely buries the
-    sparsest one (subevent recall collapses). A single global setting cannot
-    satisfy both ends of that range, so the strength is a dial, not a switch.
+    (temporal:causal:subevent gold), so a *per-family* alpha is the right control:
+    the dense families (temporal) want a low alpha or they over-predict, the sparse
+    ones (causal) want a higher alpha or their recall/F1 stays capped. A single
+    global setting has to compromise across that whole range.
     """
     weights: dict[str, list[float]] = {}
     for family, subtypes in FAMILY_SUBTYPES.items():
+        a = alpha[family] if isinstance(alpha, dict) else alpha
         index = {s: i for i, s in enumerate(subtypes)}
         counts = [0] * len(subtypes)
         for row in rows:
@@ -84,9 +88,29 @@ def class_weights(rows: list[PairExample], alpha: float = 1.0) -> dict[str, list
             counts[index[row.labels.get(family, "NONE")]] += 1
         total = sum(counts)
         weights[family] = [
-            (total / (len(subtypes) * c)) ** alpha if c else 0.0 for c in counts
+            (total / (len(subtypes) * c)) ** a if c else 0.0 for c in counts
         ]
     return weights
+
+
+def parse_weight_alpha(spec: str) -> float | dict[str, float]:
+    """Parse `--weight-alpha`: a bare float, or `causal=0.7,temporal=0.25,...`.
+
+    A per-family spec must name every family so no default is silently applied to
+    an unlisted one (an unnamed family would otherwise train with a surprise alpha).
+    """
+    if "=" not in spec:
+        return float(spec)
+    per = dict(item.split("=", 1) for item in spec.split(","))
+    parsed = {fam: float(per[fam]) for fam in FAMILY_SUBTYPES if fam in per}
+    missing = set(FAMILY_SUBTYPES) - parsed.keys()
+    extra = set(per) - set(FAMILY_SUBTYPES)
+    if missing or extra:
+        raise ValueError(
+            f"per-family --weight-alpha must name exactly {sorted(FAMILY_SUBTYPES)}; "
+            f"missing={sorted(missing)} unknown={sorted(extra)}"
+        )
+    return parsed
 
 
 def main() -> int:
@@ -101,11 +125,11 @@ def main() -> int:
     parser.add_argument("--neg-ratio", type=float, default=3.0, help="negatives per positive")
     parser.add_argument(
         "--weight-alpha",
-        type=float,
-        default=1.0,
+        type=str,
+        default="1.0",
         help="class-imbalance dial (PHASE_A ablation): CE weight = inverse_freq ** alpha. "
-        "1.0 = plain inverse (dense families over-predict, precision collapses), "
-        "0.0 = off (the sparsest family, subevent, gets buried), 0.5 = middle ground.",
+        "A bare float applies to all families (1.0 = plain inverse, 0.0 = off, 0.5 = middle), "
+        "or per-family e.g. 'causal=0.7,temporal=0.25,subevent=0.5'.",
     )
     parser.add_argument("--max-distance", type=int, default=None, help="None = document-level")
     parser.add_argument(
@@ -129,7 +153,8 @@ def main() -> int:
     rows = downsample_negatives(
         build_training_rows(docs, args.max_distance), args.neg_ratio, args.seed
     )
-    weights = class_weights(rows, args.weight_alpha) if args.weight_alpha > 0 else None
+    alpha = parse_weight_alpha(args.weight_alpha)
+    weights = None if alpha == 0.0 else class_weights(rows, alpha)
     docs_by_id = {d.doc_id: d for d in docs}
     rows_by_doc: dict[str, list[PairExample]] = {}
     for row in rows:

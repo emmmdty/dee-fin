@@ -49,6 +49,15 @@ def test_candidate_pairs_document_level_all_ordered_pairs():
     assert all(h != t for h, t in pairs)
 
 
+def test_locate_trigger_token_and_fail_fast():
+    # offsets mimic a tokenizer's offset_mapping: (char_start, char_end) per token,
+    # specials carrying (0, 0).
+    offsets = [(0, 0), (0, 3), (4, 8), (0, 0)]  # <s>, "The", "bomb", </s>
+    assert sup.locate_trigger_token("The bomb", "bomb", offsets) == 2
+    with pytest.raises(ValueError):  # unlocatable -> raise, never read a wrong token
+        sup.locate_trigger_token("The bomb", "missile", offsets)
+
+
 def test_extract_builds_grounded_edges_from_scores(monkeypatch):
     ex = relation_extractors.create("supervised")
     nodes = [_node("a", 0, 0), _node("b", 1, 0)]

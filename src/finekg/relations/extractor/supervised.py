@@ -9,8 +9,10 @@ torch/transformers are imported behind an availability guard (as in
 `succession/model.py`), so the module imports and the extractor **registers** on a
 CPU box; only running `extract` (encoding + scoring) needs the `llm` extra + GPU.
 
-Mention location is fail-fast (as in `succession/encode.py`): a trigger that
-cannot be found in its sentence raises rather than reading a wrong token.
+`locate_trigger_token` (pure-Python, fail-fast) and `encode_trigger_reps` (the
+shared encoder pooling) are reused by both inference and training so a mention is
+pooled identically either way; an unlocatable trigger raises rather than reading a
+wrong token (as in `succession/encode.py`).
 """
 
 from __future__ import annotations
@@ -26,7 +28,13 @@ from finekg.relations.extractor.base import (
 )
 from finekg.relations.pairs import candidate_pairs
 
-__all__ = ["TORCH_AVAILABLE", "SupervisedRelationExtractor"]
+__all__ = [
+    "TORCH_AVAILABLE",
+    "FAMILY_SUBTYPES",
+    "SupervisedRelationExtractor",
+    "encode_trigger_reps",
+    "locate_trigger_token",
+]
 
 # family value (RelationType.value) -> contract RelationType
 _FAMILY_TYPE = {
@@ -37,11 +45,28 @@ _FAMILY_TYPE = {
 
 # Ordered labels per family; index 0 is the negative (NONE) class. Subtypes match
 # what `data/maven_ere.py` emits (upper-cased temporal/causal keys; SUBEVENT_OF).
-_FAMILY_SUBTYPES: dict[str, tuple[str, ...]] = {
+FAMILY_SUBTYPES: dict[str, tuple[str, ...]] = {
     "temporal": ("NONE", "BEFORE", "CONTAINS", "OVERLAP", "BEGINS-ON", "ENDS-ON", "SIMULTANEOUS"),
     "causal": ("NONE", "CAUSE", "PRECONDITION"),
     "subevent": ("NONE", "SUBEVENT_OF"),
 }
+
+
+def locate_trigger_token(sentence: str, trigger: str, offsets: list[tuple[int, int]]) -> int:
+    """Token index whose char span covers the trigger; fail-fast if unlocatable.
+
+    `offsets` is a tokenizer's `offset_mapping` for `sentence`. A trigger not found
+    in its sentence, or dropped by truncation, raises rather than silently reading
+    position 0 -- shared by inference and training so both pool identically.
+    """
+    char = sentence.find(trigger)
+    if char < 0:
+        raise ValueError(f"trigger {trigger!r} not in sentence -- unlocatable mention")
+    tok = next((i for i, (s, e) in enumerate(offsets) if s <= char < e), None)
+    if tok is None:
+        raise ValueError(f"trigger {trigger!r} fell outside the tokenised span (truncated)")
+    return tok
+
 
 try:  # pragma: no cover - exercised on the GPU server
     import torch
@@ -72,6 +97,40 @@ if TORCH_AVAILABLE:
         return torch.cat(
             [head_emb, tail_emb, head_emb * tail_emb, (head_emb - tail_emb).abs()], dim=-1
         )
+
+    def encode_trigger_reps(encoder, tokenizer, nodes, doc_text, max_length, device="cpu"):
+        """Per-node trigger representation: encode each sentence once, pool the token
+        covering the trigger. Gradient flows when the encoder is in train mode --
+        the caller wraps inference in `no_grad`. Fail-fast on unlocatable triggers.
+        """
+        lines = doc_text.split("\n")
+        by_sent: dict[int, list] = {}
+        for node in nodes:
+            span = node.trigger_evidence[0] if node.trigger_evidence else None
+            if span is None or span.sent_id is None:
+                raise ValueError(
+                    f"supervised: node {node.event_id} lacks a sentence-anchored trigger"
+                )
+            by_sent.setdefault(span.sent_id, []).append(node)
+
+        embs: dict[str, torch.Tensor] = {}
+        for sent_id, group in by_sent.items():
+            if not 0 <= sent_id < len(lines):
+                raise ValueError(f"supervised: sent_id {sent_id} out of range in {group[0].doc_id}")
+            sentence = lines[sent_id]
+            enc = tokenizer(
+                sentence,
+                return_offsets_mapping=True,
+                truncation=True,
+                max_length=max_length,
+                return_tensors="pt",
+            )
+            offsets = enc["offset_mapping"][0].tolist()
+            inputs = {k: v.to(device) for k, v in enc.items() if k != "offset_mapping"}
+            hidden = encoder(**inputs).last_hidden_state[0]
+            for node in group:
+                embs[node.event_id] = hidden[locate_trigger_token(sentence, node.trigger, offsets)]
+        return embs
 
 
 @relation_extractors.register("supervised")
@@ -145,7 +204,7 @@ class SupervisedRelationExtractor(RelationExtractor):
             raise FileNotFoundError(f"supervised: trained heads not found at {heads_file}")
         self._tokenizer = AutoTokenizer.from_pretrained(str(ckpt))
         self._encoder = AutoModel.from_pretrained(str(ckpt))
-        counts = {fam: len(subs) for fam, subs in _FAMILY_SUBTYPES.items()}
+        counts = {fam: len(subs) for fam, subs in FAMILY_SUBTYPES.items()}
         self._model = PairClassifier(self._encoder.config.hidden_size, counts)
         self._model.load_state_dict(torch.load(heads_file, map_location="cpu"))
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -153,49 +212,11 @@ class SupervisedRelationExtractor(RelationExtractor):
         self._model.to(self._device).eval()
 
     def _encode_mentions(self, nodes: list[EventNode], doc_text: str) -> dict[str, torch.Tensor]:
-        """Trigger representation per node: encode each sentence once, pool the
-        token covering the trigger. Unlocatable triggers raise (no silent pos-0)."""
-        lines = doc_text.split("\n")
-        by_sent: dict[int, list[EventNode]] = {}
-        for node in nodes:
-            span = node.trigger_evidence[0] if node.trigger_evidence else None
-            if span is None or span.sent_id is None:
-                raise ValueError(
-                    f"supervised: node {node.event_id} lacks a sentence-anchored trigger"
-                )
-            by_sent.setdefault(span.sent_id, []).append(node)
-
-        embs: dict[str, torch.Tensor] = {}
-        for sent_id, group in by_sent.items():
-            if not 0 <= sent_id < len(lines):
-                raise ValueError(f"supervised: sent_id {sent_id} out of range in {group[0].doc_id}")
-            sentence = lines[sent_id]
-            enc = self._tokenizer(
-                sentence,
-                return_offsets_mapping=True,
-                truncation=True,
-                max_length=self.max_length,
-                return_tensors="pt",
+        """Trigger reps for inference: the shared encoder pooling under `no_grad`."""
+        with torch.no_grad():
+            return encode_trigger_reps(
+                self._encoder, self._tokenizer, nodes, doc_text, self.max_length, self._device
             )
-            offsets = enc["offset_mapping"][0].tolist()
-            inputs = {k: v.to(self._device) for k, v in enc.items() if k != "offset_mapping"}
-            with torch.no_grad():
-                hidden = self._encoder(**inputs).last_hidden_state[0]
-            for node in group:
-                char = sentence.find(node.trigger)
-                if char < 0:
-                    raise ValueError(
-                        f"supervised: trigger {node.trigger!r} of {node.event_id} not in its "
-                        "sentence -- mention unlocatable, refusing to read a wrong token"
-                    )
-                tok = next((i for i, (s, e) in enumerate(offsets) if s <= char < e), None)
-                if tok is None:
-                    raise ValueError(
-                        f"supervised: trigger of {node.event_id} fell outside the tokenised "
-                        "span (truncated) -- raise max_length"
-                    )
-                embs[node.event_id] = hidden[tok]
-        return embs
 
     def _score_pairs(
         self,
@@ -213,7 +234,7 @@ class SupervisedRelationExtractor(RelationExtractor):
         with torch.no_grad():
             logits = self._model(feats.to(self._device))
         result: dict[tuple[str, str], dict[str, tuple[str, float]]] = {}
-        for family, subtypes in _FAMILY_SUBTYPES.items():
+        for family, subtypes in FAMILY_SUBTYPES.items():
             probs = torch.softmax(logits[family], dim=-1)
             conf, idx = probs.max(dim=-1)
             for pair, i, c in zip(pairs, idx.tolist(), conf.tolist(), strict=True):

@@ -23,26 +23,17 @@
   - `nvmlshim/` → 服务器 remote-only（card 3 NVML shim）
 - ⚠️ **服务器 `git pull` 拿不到数据**（数据不在 git）：首次 / 更新数据用 scp（见 §4 step 3）。
 
-## 3. 远端首次 git 化（一次性，**待 ssh 恢复后执行**）
+## 3. 远端 git 状态（已就位 · 2026-07-23 核实）
 
-远端 `/data/TJK/Fin-EKG` 当前**不是 git 仓库**、且有 remote-only 产物（`runs/` `nvmlshim/`）。
-用**原地 `git init`**（产物留原位，不迁移、不删除）：
+远端 `/data/TJK/Fin-EKG` **已是 git 仓库**，`main` 跟踪 `origin/main`、对齐 `f87175d`，tracked 工作区干净；
+`runs/ nvmlshim/ data/raw/` 等 remote-only 产物在原位。**网络可直达 GitHub**（`git fetch` 成功，PUBLIC 免 token）。
 
-```bash
-ssh gpu-4090
-cd /data/TJK/Fin-EKG
-git init && git branch -M main
-git remote add origin https://github.com/emmmdty/dee-fin.git   # PUBLIC，免 token
-git fetch origin
-git status            # ← 先看：确认 runs/ data/ nvmlshim/ 均在 ignored/untracked（不会被动）
-git reset --hard origin/main   # tracked 代码 = GitHub；untracked 产物全部保留原位
-git log --oneline -1           # 应 == 本地 / GitHub 的 HEAD
-```
-
-- `reset --hard` **只重置 tracked 代码**；`.gitignore` 覆盖的 `runs/ data/ models/ outputs/ nvmlshim/` 不受影响。
-- **永不 `git clean -fdx`**（会删 ignored 的 `runs/ data/ nvmlshim/`）。
-- reset 前务必 `git status` 核对：服务器约定「只执行不编辑」，正常不应有「未同步到 GitHub 的 tracked 改动」被覆盖。
-- git 可能不在非交互 ssh PATH → 用绝对路径或 `bash -lc`。
+- 首次核实时远端在 `master@06e2d1f` 且有 32 个 tracked 改动（历史 scp 遗留、未 commit）——已 `git stash` 保全为
+  `stash@{0}`（`server-scp-snapshot-2026-07-23`），随时 `git stash show -p stash@{0}` 找回，**不丢数据**。
+- 日常同步见 §4 step 3（`git fetch && git reset --hard origin/main`）；工作区已干净、reset 安全，只重置 tracked，
+  `runs/ data/ nvmlshim/` 不受影响。
+- **永不 `git clean -fdx`**（会删 ignored 的 `runs/ data/ nvmlshim/`）；数据 / 产物仍走 scp。
+- git 可能不在非交互 ssh PATH → `export PATH=$HOME/.local/bin:/usr/bin:$PATH` 或 `bash -lc`。
 - 仓库若转 private：远端 remote 换 `https://<PAT>@github.com/emmmdty/dee-fin.git` 或配 deploy key。
 
 ## 4. 标准迭代闭环

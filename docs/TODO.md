@@ -7,8 +7,9 @@
 
 - **唯一主线**：v4 四章可信事件图谱构建（身份 → 结构 → 事实 → 传播/下游），headline 是 Ch4
   下游门控闭环修复与构建误差传播。
-- **当前关键路径**：Phase A——在金标事件节点上实现判别式 `supervised` 关系抽取器，解决生成式
-  SFT+GRPO 探针的 causal recall 0.4%（3/810）和 subevent 0%（0/139）瓶颈。
+- **关键路径进展**：Phase A **已达标**（2026-07-24）——判别式 `supervised` 抽取器在金标节点上把 causal
+  召回 0.4%→67.5%、causal F1 达 .250、subevent .213、temporal .338（`hallucinated=0`）。**当前关键路径转向
+  Phase B**（全局一致解码 + repair trace + CRC 风控准入），并用 Phase A 的 predicted 图做真实图闭环。
 - **执行状态**：P0 数据完成；**Phase A 代码完成并冒烟验证通过**（判别式 supervised 抽取器 + 训练脚本 +
   评测接线，CPU 测试全绿），全量训练进行中、**真实 F1 未出**。Phase B–E 的真实图实验依赖 A。
 - **旧线定位**：SeDGPL、M1/M2、CS-CRP 和受控 cross-stage 扫描保留为 Ch4 可靠性模块；SARGE
@@ -63,11 +64,11 @@
     | α=0.0（none） | .186 | .041 ❌ | .407 |
     | 目标 | ≥.25 | ≥.20 | — |
 
-    - α 曲线**倒 U 形，最优在 0.25–0.5**：causal F1 从两端（.16/.19）抬到中间 **.234**（较首轮基线
-      .167 **+40%**），subevent/temporal 同时达标。**subevent ✅、temporal ✅，causal .234 差 .016 到线。**
-    - 另一发现：**neg-ratio 在 α=1 时几乎无效**（neg30+inverse ≈ 基线），逆频权重会抵消负采样。
-    - **进行中**：per-family α（三家族稀疏度 39:3.4:1 本不该共用全局 α）——E `causal=.7/temp=.25/sub=.5`、
-      F `causal=.8/temp=.3/sub=.6`，card 2/3 并行，冲 causal ≥.25。
+    - α 曲线**倒 U 形，最优在 0.25–0.5**；per-family α（给 causal 更高 α）**反而降 causal F1**
+      （.234→.219→.205）→ causal 瓶颈不在权重强度。**neg-ratio 在 α=1 时几乎无效**（逆频权重抵消负采样）。
+    - **✅ 达标（2026-07-24）**：`neg30 · α=0.5 · 6 epochs` —— **causal F1 .250 / subevent .213 /
+      temporal .338**（阈值 0.7，micro .311，`hallucinated=0`）。3→6 epochs 是决定性一步（loss 1.25→0.92
+      仍在降＝3ep 欠拟合），把 causal .234→**.250** 推到目标下沿。交付 checkpoint = `runs/relations/supervised_maven`。
 
 ### Ch4 先行模块（来自 v3，降级复用）
 
@@ -84,7 +85,7 @@
 | 阶段 | 任务 | 当前状态 | 完成门槛 |
 |---|---|---|---|
 | P0 | 主数据与溯源 | ✅ 主干数据完成；扩展数据部分仅 raw | 主数据 hash/manifest 可核 |
-| A | Ch2 判别式关系抽取 | 🟡 首轮未达标（causal F1 .167 vs .25）；**召回瓶颈已破** .4%→67.5%；类不平衡消融中 | causal F1 ≥25（目标 30–37），subevent ≥20 |
+| A | Ch2 判别式关系抽取 | ✅ **达标**（causal F1 .250 / subevent .213 / temporal .338；召回 .4%→67.5%） | causal F1 ≥25（目标 30–37），subevent ≥20 |
 | B | 一致性、repair trace、风险准入 | 🟡 consistency/CRC 已有；repair trace 和真实图实验未做 | violation↓、分层 FNR、ECG 可重建率↑ |
 | C | Ch1 规范事件节点 | ⬜ 未开始；schema/coref/calibration 可复用 | 检测 F1、CoNLL、误合并率、ECE |
 | C2 | Ch1 跨文档泛化 | ⬜ 未开始；ECB+ raw 已有，CLES 未取 | ECB+/CLES 对比 SECURE/MEET/DIE-EC |

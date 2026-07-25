@@ -5,6 +5,8 @@ low-confidence edges to lift precision. Checked deterministically on CPU.
 
 from __future__ import annotations
 
+import pytest
+
 from finekg.core.schema import EventGraph, EventNode, RelationEdge, RelationType
 from finekg.relations.admission import (
     CRCEdgeAdmission,
@@ -12,6 +14,7 @@ from finekg.relations.admission import (
     admission_report,
     edge_admission,
     gold_edge_scores,
+    stratified_admission_report,
 )
 
 
@@ -21,6 +24,16 @@ def _edge(head: str, tail: str, conf: float, subtype: str = "CAUSE") -> Relation
         tail_id=tail,
         relation_type=RelationType.CAUSAL,
         subtype=subtype,
+        confidence=conf,
+    )
+
+
+def _temporal(head: str, tail: str, conf: float) -> RelationEdge:
+    return RelationEdge(
+        head_id=head,
+        tail_id=tail,
+        relation_type=RelationType.TEMPORAL,
+        subtype="BEFORE",
         confidence=conf,
     )
 
@@ -80,3 +93,29 @@ def test_passthrough_admits_everything() -> None:
 
 def test_empty_calibration_admits_all() -> None:
     assert CRCEdgeAdmission(alpha=0.1).fit([]).threshold() == 0.0
+
+
+def test_stratified_report_splits_marginal_pertype_and_docmacro() -> None:
+    # d1: 2 causal gold, both admitted (FNR 0). d2: 1 causal + 1 temporal gold,
+    # only the temporal admitted (the causal is missed -> doc FNR 0.5).
+    causal = [_edge("a", "b", 0.9), _edge("b", "c", 0.9)]
+    d1 = (list(causal), list(causal))
+    d2 = ([_temporal("x", "y", 0.9)], [_edge("p", "q", 0.9), _temporal("x", "y", 0.9)])
+
+    report = stratified_admission_report([d1, d2])
+
+    # marginal: 3 of 4 gold retained -> FNR 0.25
+    assert report["marginal"]["fnr"] == pytest.approx(0.25)
+    # per-type: causal 2/3 retained -> FNR 1/3; temporal fully retained -> 0
+    assert report["by_type"]["causal"]["fnr"] == pytest.approx(1 / 3)
+    assert report["by_type"]["temporal"]["fnr"] == pytest.approx(0.0)
+    # doc-macro: mean(0.0, 0.5) = 0.25 (differs from marginal under class imbalance)
+    assert report["doc_macro_fnr"] == pytest.approx(0.25)
+    assert report["admitted_size"] == 3
+
+
+def test_stratified_report_is_empty_safe() -> None:
+    report = stratified_admission_report([])
+    assert report["admitted_size"] == 0
+    assert report["doc_macro_fnr"] == 0.0
+    assert report["by_type"] == {}

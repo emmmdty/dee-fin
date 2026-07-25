@@ -1,0 +1,20 @@
+# Relation stage — raw predicted-edge dump for offline Phase-B analysis (GPU).
+# Same Phase-A discriminative extractor + checkpoint as supervised.yaml, but with
+# consistency OFF (identity) and NO admission, so the dump carries the raw scored
+# + grounded edges. Repair (greedy solve_with_trace), CRC admission and ECG
+# reconstructability then run on CPU, off the dump, by:
+#   evaluate_relations.py --config this --dump-predictions runs/relations/supervised_dump.jsonl
+#   consistency_repair_report.py --dump runs/relations/supervised_dump.jsonl --gold <valid>
+# Keeping repair offline means the checkpoint never has to come local.
+relations:
+  extractor: supervised
+  extractor_kwargs:
+    checkpoint_path: runs/relations/supervised_maven
+    max_distance: null           # null = document-level candidates (no window)
+    max_length: 512
+  require_evidence: true          # edges carry both endpoints' trigger spans
+  consistency: identity           # <-- raw edges; repair is applied offline
+
+data:
+  loader: maven_ere
+  path: data/processed/maven_ere/valid.jsonl

@@ -26,7 +26,7 @@ from collections.abc import Iterable, Sequence
 from finekg.core.calibration import conformal_risk_threshold
 from finekg.core.eval.relation import relation_prf
 from finekg.core.registry import Registry
-from finekg.core.schema import EventGraph, RelationEdge
+from finekg.core.schema import EventGraph, RelationEdge, RelationType
 
 __all__ = [
     "edge_admission",
@@ -36,6 +36,7 @@ __all__ = [
     "edge_score",
     "gold_edge_scores",
     "admission_report",
+    "stratified_admission_report",
 ]
 
 edge_admission: Registry[EdgeAdmission] = Registry("edge_admission")
@@ -162,4 +163,49 @@ def admission_report(
         "recall": float(micro["recall"]),
         "fnr": 1.0 - float(micro["recall"]),
         "f1": float(micro["f1"]),
+    }
+
+
+def stratified_admission_report(
+    per_doc: Sequence[tuple[Sequence[RelationEdge], Sequence[RelationEdge]]],
+) -> dict:
+    """FNR stratified along the axes reviewers ask for, over ``(admitted, gold)``
+    document pairs.
+
+    The CRC edge-admission guarantee is a *marginal, exchangeability-assuming*
+    expected FNR (§SPEC 4.3) — not a per-document or per-class promise. So we
+    report it three ways and let the gaps speak:
+
+    - ``marginal`` — corpus-micro P/R/FNR (the level the CRC bound targets);
+    - ``by_type`` — per-relation-family FNR (causal is the hard, sparse class);
+    - ``doc_macro_fnr`` — mean of per-document FNR (diverges from marginal under
+      class imbalance, which is exactly the honesty check).
+
+    ``admitted_size`` (total) and ``admitted_size_mean`` (per doc) report how
+    selective admission was — the precision/recall trade the threshold bought.
+    """
+    all_admitted = [e for admitted, _ in per_doc for e in admitted]
+    all_gold = [g for _, gold in per_doc for g in gold]
+    prf = relation_prf(all_admitted, all_gold)
+
+    by_type: dict[str, dict[str, float]] = {}
+    for rel in RelationType:
+        family = prf.get(rel.value)
+        if family is None:
+            continue
+        recall = float(family["recall"])
+        by_type[rel.value] = {
+            "recall": recall,
+            "fnr": 1.0 - recall,
+            "n_gold": float(family["n_gold"]),
+        }
+
+    doc_fnrs = [admission_report(admitted, gold)["fnr"] for admitted, gold in per_doc if gold]
+    n_docs = len(per_doc)
+    return {
+        "marginal": admission_report(all_admitted, all_gold),
+        "by_type": by_type,
+        "doc_macro_fnr": sum(doc_fnrs) / len(doc_fnrs) if doc_fnrs else 0.0,
+        "admitted_size": len(all_admitted),
+        "admitted_size_mean": len(all_admitted) / n_docs if n_docs else 0.0,
     }

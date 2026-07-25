@@ -99,6 +99,33 @@ X-AMR 线性共指（🆕LREC-COLING 2024）｜反事实数据增强（🆕2024�
 成对分类 + 权重调节触及架构上限，与 SOTA 靠"联合建模 + 图传播"（causal 37.4）一致——超过 .25 需
 Phase B 的全局一致解码（跨边约束），非继续调类不平衡。
 
+#### Phase B 全局一致解码 + 可追溯修复 + 风险受控准入（2026-07-25，W1–W4 代码 + CPU 验证）
+
+**方法**（复用 consistency/admission/cgep，不重写）：`solve_with_trace` 发结构化 `RepairTrace`
+（每条 drop/add + violation + before/after `consistency_report`，`solve()` 默认逐字节不变）；
+`stratified_admission_report` 分层 FNR（边际 / 分族 / doc-macro + 准入集大小，按 SPEC §5.5 报边际期望、
+不写每篇每类保证）；`succession/reconstruction` 出 ECG 可重建率 **R1 可达**（=CS-CRP `reachable` 桥）+
+**R2 query 保真**。离线编排 `consistency_repair_report.py` 消费 GPU 端原始边 dump（`supervised_dump.yaml`：
+supervised + identity + 无准入），本地 CPU 跑 repair+trace → CRC 准入（复刻 repair∘admit 固定映射）→ 三档轨迹。
+
+**合成 dump 受控验证（CPU，如实）**——注入因果环（最弱边 conf 0.2 闭合 m1→m2→m4→m1）：
+
+| 档 | causal_cycle | R1 可达率 | R2 query f1 | 准入集 |
+|---|---|---|---|---|
+| raw（identity 无修复） | 1 | 1.0 | **0.0** | — |
+| repaired（solve_with_trace） | **0** | 1.0 | **1.0** | — |
+| repaired + CRC 准入（α=.2, τ=.9） | 0 | 1.0 | 1.0 | 5/5（FNR 0） |
+
+- **修复增益如实落在 precision 义 R2（0→1.0）、非召回义 R1（持平 1.0）**：环不删除 query 边故召回不动，
+  但环使 tail 出度 1 破坏 query 边判定、R2 崩，破环后恢复。**与 PHASE_B 止损口径一致**——R1 受 α_edge
+  约束本就可持平/略降，修复靠 violation/cycle↓ 与 R2↑ 讲，不换指标掩盖负结果。
+- `dropped=1`（violation=causal_cycle）、`reachable_flags=[True]`（可直接喂 `run_cross_stage`）；
+  269 passed / 12 torch-skip、ruff 0、smoke OK。
+
+**真实 predicted 图数字待跑**：dump producer 已上 origin/main + 服务器 pull（HEAD `771d5c3`），
+checkpoint `runs/relations/supervised_maven` + valid 710 篇在位；**当前 4 卡全占**（他人训练），按卡空闲再跑、
+不挤占；产物落 `runs/relations/consistency_repair_supervised.json`，回填三档真实轨迹。
+
 ### Ch3 事实 —— 事件事实性检测 + 图净化
 
 | 方法 | 年 | 方法族 | 角色 | 参考（MAVEN-FACT macro-F1）|
@@ -131,8 +158,9 @@ Phase B 的全局一致解码（跨边约束），非继续调类不平衡。
 | Ch1 | ± 不确定性感知聚类 | 置信可下游消费 | `node_confidence` **ECE** | ⬜ |
 | Ch2 | 判别式 vs 生成式 SFT+GRPO | 判别式解召回 | causal/subevent **P/R/F1**（对照 0.4%） | ⬜ Phase A |
 | Ch2 | ± 类不平衡处理（加权CE/focal/负采样） | 稀疏关系可学 | causal recall | ⬜ |
-| Ch2 | ± 全局一致解码（闭包/破环/对称） | 结构自洽 | **violation / cycle 率** | 🟡 求解器有、trace 无 |
-| Ch2 | ± CRC 边准入 | 关键边不漏 | **分层 FNR** + 准入集大小 | 🟡 原语有、真实图未接 |
+| Ch2 | ± 全局一致解码（闭包/破环/对称） | 结构自洽 | **violation / cycle 率** | 🟡 求解器 + RepairTrace，CPU 验证；真实图待 GPU |
+| Ch2 | ± CRC 边准入 | 关键边不漏 | **分层 FNR** + 准入集大小 | 🟡 CRC + 分层 FNR，CPU 验证；真实图待 GPU |
+| Ch2 | raw→repaired→+准入 三档可重建 | 修复帮到结构 | **ECG R1 可达 / R2 保真** | 🟡 `succession/reconstruction`，CPU 验证；真实图待 GPU |
 | Ch3 | gold 输入 vs 预测图输入 | 预测图鲁棒性（delta①） | macro-F1 **掉点** | ⬜ Phase D |
 | Ch3 | ± 结构（论元+关系）特征 | 结构对检测的作用 | macro-F1 | ⬜ |
 | Ch3 | ± 事实性净化 | 净化换下游增益（delta②） | 下游 **MRR** 前后 | ⬜ |

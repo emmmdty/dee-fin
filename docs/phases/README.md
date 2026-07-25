@@ -48,7 +48,7 @@ P0 主数据 ✅ ───────────────────┐
 | Phase | 章 | Goal（一句话） | 关键验收 | 依赖 | GPU |
 |---|---|---|---|---|---|
 | **A** | Ch2 | 判别式 `supervised` 关系抽取器，金标节点上 causal/subevent 可用 | causal F1 ≫0.4%（目标 ~30–37） | P0 | 重 |
-| **B** | Ch2 | 全局一致解码 + 可追溯修复 + CRC 风控准入 | violation↓、分层 FNR、repair trace、ECG 可重建率↑ | A | 轻 |
+| **B** | Ch2 | 全局一致解码 + 可追溯修复 + CRC 风控准入 | 代码 ✅ CPU 绿；真实图 dump 待空卡 → 交接见 [`PHASE_B_HANDOFF.md`](PHASE_B_HANDOFF.md) | A | 轻 |
 | **C** | Ch1 | 证据+不确定性规范事件节点（含论元、难例判别） | 检测 F1 ~60+、coref MUC ~86、误合并率↓ | P0 | 轻 |
 | **C2** | Ch1 | 跨文档泛化（ECB+/CLES） | 对比 SECURE/MEET/DIE-EC | C（ECB+ raw 已有；CLES 待取） | 轻 |
 | **D** | Ch3 | 构建图上事实性检测 + 事实性驱动图净化 | macro-F1 ≥47.6、预测图掉点量化、净化下游增益 | P0(+B) | 轻 |

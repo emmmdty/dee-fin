@@ -128,10 +128,11 @@
 
 ## 下一步
 
-1. ~~实现 Phase A 判别式抽取器~~ ✅ 代码完成、冒烟通过。**等全量训练结束跑两段式评测**，如实回填
-   causal/subevent P/R/F1（对照生成式 0.4%）；未达标按 PHASE_A 止损条款处理。
-2. 本地验收后，在启动远程长训练前单独给出完整命令、工作目录、选卡、时长和产物，并等待明确授权。
-3. Phase A 达标后立即进入 B，先证明 predicted ECG 的 reachability 可用，再投入 C/D/E。
+1. ~~Phase A 判别式抽取器~~ ✅ 达标（causal F1 .250 / subevent .213）。~~Phase B W1–W4 代码~~ ✅ CPU 全绿已推。
+2. **⭐当前队首 = Phase B 真实图闭环**：服务器空卡后跑 dump → scp 回 → `consistency_repair_report.py`
+   → 把三档真实轨迹（violation/cycle、分层 FNR、准入集、R1/R2）回填 TODO/EXPERIMENTS「Phase B 实施」段
+   （现为 PENDING）。**照 [`phases/PHASE_B_HANDOFF.md`](phases/PHASE_B_HANDOFF.md) 逐步执行**（服务器待机脚本已起）。
+3. Phase B 真实数字出后进 C（Ch1 规范节点）/D（Ch3 事实性）；E（Ch4 闭环 headline）依赖 A·B·C·D 齐。
 4. 多种子和进一步调 M1/M2 放到 Phase H；主闭环未通前不扩张实验面。
 5. 每章开跑前照 [`EXPERIMENTS.md`](EXPERIMENTS.md) 定 baseline（新老搭配）+ 消融矩阵 + 评测档；Ch4 主表
    纳入 2025 近期方法（Semantic Relation Experts / 现代 LLM），不再用旧 Llama3/GPT-3.5。

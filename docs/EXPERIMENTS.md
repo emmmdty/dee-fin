@@ -120,7 +120,8 @@ supervised + identity + 无准入），本地 CPU 跑 repair+trace → CRC 准�
   但环使 tail 出度 1 破坏 query 边判定、R2 崩，破环后恢复。**与 PHASE_B 止损口径一致**——R1 受 α_edge
   约束本就可持平/略降，修复靠 violation/cycle↓ 与 R2↑ 讲，不换指标掩盖负结果。
 - `dropped=1`（violation=causal_cycle）、`reachable_flags=[True]`（可直接喂 `run_cross_stage`）；
-  269 passed / 12 torch-skip、ruff 0、smoke OK。
+  交付时 269 passed / 12 torch-skip、ruff 0、smoke OK（2026-07-27 移除 SARGE/Phase G 测试后
+  当前主干 = 241 passed / 12 torch-skip）。
 
 **真实 predicted 图数字待跑**：dump producer 已上 origin/main + 服务器 pull（HEAD `771d5c3`），
 checkpoint `runs/relations/supervised_maven` + valid 710 篇在位；**当前 4 卡全占**（他人训练），按卡空闲再跑、

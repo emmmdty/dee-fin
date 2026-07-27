@@ -152,7 +152,8 @@ def main() -> int:
     # `relation_prf` is exact-match (kept for backward comparability); the
     # `_temporal_closed` variant closes strict-order temporal predictions before
     # matching, which is the fair number against MAVEN-ERE's transitively-closed
-    # temporal gold (see core/eval/relation.py and docs/archive/MIDTERM_HANDOFF.md §2-P1).
+    # temporal gold (see core/eval/relation.py; the original finding is in the archived
+    # midterm handoff — retrieval path in docs/ARCHIVE_INDEX.md).
     metrics = {
         "n_docs": n_docs,
         "relation_prf": {k: dict(v) for k, v in relation_prf(pred_edges, gold_edges).items()},

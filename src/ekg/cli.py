@@ -23,7 +23,7 @@ from ekg.relations.pipeline import MultiAgentRelationPipeline
 
 
 def _fixtures_dir() -> Path:
-    override = os.environ.get("FINEKG_FIXTURES")
+    override = os.environ.get("EKG_FIXTURES")
     if override:
         return Path(override)
     return Path(__file__).resolve().parents[2] / "data" / "fixtures"

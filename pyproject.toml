@@ -123,7 +123,6 @@ target-version = "py310"
 src = ["src", "tests"]
 extend-exclude = [
     "data/raw",
-    "docs/archive",
 ]
 
 [tool.ruff.lint]

@@ -23,7 +23,7 @@
 | MAVEN-ERE | 2022 | coref+时序+因果+子事件 | en | ✅ WSL/4090 processed | 主数据 |
 | MATRES | 2018 | 时序关系 | en | 📦 WSL/4090 raw | 泛化；待预处理 |
 | ESC / EventStoryLine | 2017 | 因果/后继预测 | en | ✅ raw + CGEP loader | Ch4 副数据 |
-| CCKS-FinCausal | 2021 | 中文金融因果 | zh | ✅ WSL/4090 processed | Phase G |
+| CCKS-FinCausal | 2021 | 中文金融因果 | zh | ✅ WSL/4090 processed | loader 接线在主干；跨语言旁证，不进主表 |
 | TORQUE / Causal-TimeBank | 2020/2014 | 时序/因果 | en | 💤 | 不急 |
 
 ## Ch3 — 事实性

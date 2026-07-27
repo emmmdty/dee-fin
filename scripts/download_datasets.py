@@ -5,7 +5,7 @@ Project-ready targets are produced by scripts/preprocess_datasets.py:
 - raw:       data/raw/{dataset}/...
 - processed: data/processed/{dataset}/...
 
-Downloads prefer mirrors (set FINEKG_MIRROR or rely on the listed mirror URL).
+Downloads prefer mirrors (set EKG_MIRROR or rely on the listed mirror URL).
 Datasets needing a login / manual export (Tianchi CCKS, hidden MAVEN test labels)
 print clear instructions instead of failing silently.
 
@@ -71,8 +71,8 @@ def _download(urls: tuple[str, ...], dest: Path) -> bool:
     mirror = None
     import os
 
-    if os.environ.get("FINEKG_MIRROR"):
-        mirror = os.environ["FINEKG_MIRROR"]
+    if os.environ.get("EKG_MIRROR"):
+        mirror = os.environ["EKG_MIRROR"]
     candidates = ([mirror] if mirror else []) + list(urls)
     dest.parent.mkdir(parents=True, exist_ok=True)
     for url in candidates:

@@ -1,6 +1,5 @@
-# W3-4 deliverable: easy-bucket small-scale GRPO-RLVR (docs/archive/RL_DESIGN.md §7,
-# docs/SERVER_W3-4_RUNBOOK.md). This is the *real* (not smoke) training whose
-# reward curves the W3-4 exit criteria read: the four reward components must
+# Easy-bucket small-scale GRPO-RLVR. This is the *real* (not smoke) training whose
+# reward curves the exit criteria read: the four reward components must
 # move together (no single component collapsing while the total climbs) and
 # the resulting adapter's F1 must be >= the SFT baseline.
 #
@@ -48,7 +47,7 @@ relations_rl:
     bf16: true
     gradient_checkpointing: true
     max_grad_norm: 0.5
-    seed: 42                        # W3-4 uses one seed; full run reports 13/17/42
+    seed: 42                        # this config uses one seed; full run reports 13/17/42
 
   rollout:
     backend: vllm_server            # vllm_server | vllm_colocate | hf (always works)

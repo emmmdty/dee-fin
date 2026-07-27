@@ -5,7 +5,8 @@
 > [`ENGINEERING_NOTES.md`](ENGINEERING_NOTES.md)；**服务器运维** 见 [`GPU_RUNBOOK.md`](GPU_RUNBOOK.md)；
 > **三端协作流水线** 见 [`PIPELINE.md`](PIPELINE.md)；
 > **baseline/消融/评测协议** 见 [`EXPERIMENTS.md`](EXPERIMENTS.md)；**数据与切分** 见
-> [`DATASETS.md`](DATASETS.md)。历史设计/交接稿已归档 `docs/archive/`（勿作依据）。
+> [`DATASETS.md`](DATASETS.md)。历史设计/交接稿正文已移出仓库，索引见
+> [`ARCHIVE_INDEX.md`](ARCHIVE_INDEX.md)（勿作依据）。
 
 ## 1. 主线与任务（v4 · 2026-07-21 重设）
 
@@ -30,8 +31,8 @@
 
 > ⚠️ 旧「实体中心中文金融事件图谱 + TKG 外推」（re_gcn/path_rl/hybrid）**已从主干移除**（见 git tag
 > `frozen-tkg-line`，消融时从 tag 取）；Astock 与 entity-mode 是已证死路。**金融应用层
-> （Phase G / SARGE）已于 2026-07-27 整体移出主干**——v4 四章无一依赖，结果快照见
-> `archive/SARGE_RESULTS_SNAPSHOT.md`。
+> （Phase G / SARGE）已于 2026-07-27 整体移出主干**——v4 四章无一依赖，结果快照的取回路径见
+> [`ARCHIVE_INDEX.md`](ARCHIVE_INDEX.md)。
 > ⚠️ 数据看**公开可下载性**：MAVEN 四件套（检测/Arg/ERE/FACT）全 THU-KEG 公开 gold、同 4480 文档、
 > test 隐藏走 CodaLab；截至 2026-07-22，MAVEN-ERE / Arg / FACT 的公开 train/valid 已在 WSL 与 4090
 > 就位。扩展数据的 raw/processed 边界以 `DATASET_SURVEY.md` 为准。
@@ -64,16 +65,23 @@ src/ekg/
 ├── succession/    ★Ch4 CGEP 后继事件预测(SeDGPL 基座 + selective/structure/cross_stage)
 │   ├── data/cgep.py     从 MAVEN-ERE 重建 CGEP 实例(ECG 抽取/anchor 选取/候选采样)
 │   ├── data/esc.py      官方 ESCSubWoRe.npy 白名单 Unpickler + topic 交叉验证切分
-│   ├── linearize.py     DsGL 图线性化 + EventVocabulary(<a_i> token)
+│   ├── linearize.py     DsGL 图线性化 + EventVocabulary(<a_i> token) + 距离选边
 │   ├── metrics.py       MRR/Hit@k, 乐观(SeDGPL)+strict 两套 tie-break
 │   ├── predictor.py     SuccessorPredictor ABC + registry + random/frequency + UnscorableInstance
 │   ├── model.py         EeCE 两级门控 + ScEP 对比头(torch 守卫, CPU 可导入)
 │   ├── encode.py        批编码(保「第 i 个事件 token ↔ 第 i 个句子」不变量)
+│   ├── structure.py     reach_anchor 结构特征(zero-init embedding + 门控残差)
+│   ├── selective.py     推理侧选择性 conformal 头(risk-coverage 曲线)
+│   ├── cross_stage.py   受控 reachability 扫描(CS-CRP 组合)
+│   ├── reconstruction.py  ECG 可重建率 R1(query 边可达)/R2(query 边保真)
 │   └── sedgpl.py        SeDGPLPredictor: linearize→encode→model, 纳入统一 evaluate
-├── relations/     Ch2 关系抽取+图构建: data/·extractor/(heuristic·llm)·grounding/·
-│                  consistency/·admission.py(CRC 边准入)·rl/(GRPO-RLVR)·agents/·pipeline
+├── relations/     Ch2 关系抽取+图构建: data/·pairs.py(文档级候选与标签口径)·
+│                  extractor/(heuristic·llm·supervised 判别式对分类)·grounding/·
+│                  consistency/(全局一致解码 + RepairTrace)·admission.py(CRC 边准入 + 分层 FNR)·
+│                  rl/(GRPO-RLVR)·agents/·pipeline
 ├── agents/        多智能体基底: Agent/Blackboard/Stage/Orchestrator/Verifier(阶段无关)
-└── rl/            RL 基底(阶段无关): 组合奖励·组相对优势·势塑形·课程
+├── rl/            RL 基底(阶段无关): 组合奖励·组相对优势·势塑形·课程
+└── cli.py         ekg-smoke 入口(CPU 端到端冒烟)
 scripts/           功能命名 CLI: build_cgep·evaluate_cgep·profile_cgep_step / evaluate_* / train_*
 configs/relations/   YAML 实验配置
 tests/{core,succession,relations,agents,rl,scripts}/   单测 + CPU 冒烟
@@ -137,7 +145,8 @@ cs_crp 守覆盖到预留档(loss≤0.1)、集恒~270；**cs_cond 同覆盖下�
 ### 4.4 验证器即奖励（RL-reward，**降级为机制之一/消融**）
 `ekg/rl` + `relations/rl`（GRPO-RLVR：format+grounding+consistency+F1）。path RL（旧 TKG 线）已随
 主干移除（tag `frozen-tkg-line`）。**定位收缩**：新颖性复核表明「结构作 RLVR 奖励」是红海（见 §5），故 RL-reward
-不作头条卖点，仅作机制/消融。历史全设计见归档 `docs/archive/RL_DESIGN.md`。
+不作头条卖点，仅作机制/消融。历史全设计（`RL_DESIGN.md`）已移出仓库，取回见
+[`ARCHIVE_INDEX.md`](ARCHIVE_INDEX.md)。
 
 ### 4.5 下游门控的信号来源（方法论约束，防 oracle 陷阱）
 Ch4 闭环「仅当 SeDGPL 后继预测目标改善才接受编辑」——但 self-correction 的收益常来自 **oracle label**
@@ -149,7 +158,8 @@ reachability + conformal 预算**，不在「无金标优化下游」本身。**
 
 ## 5. 新颖性定位约束（硬约束，投稿安全）
 
-复核证据见归档 `docs/archive/NOVELTY_A1_2026-07-11.md` / `NOVELTY_CSCRP_2026-07-11.md`。
+复核证据底稿（`NOVELTY_A1_2026-07-11.md` / `NOVELTY_CSCRP_2026-07-11.md`）已移出仓库；
+**投稿前重扫新颖性时须按 [`ARCHIVE_INDEX.md`](ARCHIVE_INDEX.md) 取回**。
 
 > **v4 重定位（2026-07-21，权威 = 批准计划稿「创新点与新颖性（防审稿）」节）**：全篇创新是**组合式 +
 > 系统集成 + 窄 delta**，headline = **Ch4 下游门控闭环修复 + 构建误差预算**（非单个颠覆算法）。逐章防审稿

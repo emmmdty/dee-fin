@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 """GRPO post-training for the relation extractor with verifiable rewards (server / CUDA).
 
-The verifier-as-reward stage (docs/archive/RL_DESIGN.md §2): after SFT
+The verifier-as-reward stage (design archived out of the repo; retrieval path in
+docs/ARCHIVE_INDEX.md): after SFT
 (`scripts/train_relation_extractor.py`), sample G completions per event-window
 prompt and reward them with the verifier kernels — format + evidence grounding
 + global consistency + gold F1. Phases follow the easy-to-hard curriculum from

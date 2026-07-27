@@ -5,7 +5,7 @@
 > `docs/ENGINEERING_NOTES.md`｜服务器运维 → `docs/GPU_RUNBOOK.md`｜三端协作流水线 → `docs/PIPELINE.md`。
 > **当前唯一研究主线是 v4 四章（身份 → 结构 → 事实 → 传播/下游）**；旧 TKG 线只在 tag
 > `frozen-tkg-line` 保留，**SARGE / 金融应用层已于 2026-07-27 整体移出主干**（四章无一依赖；
-> 结果快照 `docs/archive/SARGE_RESULTS_SNAPSHOT.md`）。出现冲突时以 `docs/SPEC.md` 为准。
+> 历史留档正文已移出仓库，索引见 `docs/ARCHIVE_INDEX.md`）。出现冲突时以 `docs/SPEC.md` 为准。
 
 ## 校验命令（改代码后必跑）
 
@@ -33,7 +33,9 @@ uv run ekg-smoke    # CPU 端到端冒烟
 ## GPU 运行约束
 
 - **card 3 故障**需 NVML shim；card 0/2 常被别人占，**优先 card 1**，选卡前 `nvidia-smi`（原子核卡，不隔启动复用）。
-- **未经用户明确要求，不起长 GPU 训练/推理**；`uv run` 约 1 分钟才占显存。
+- **GPU 使用无限制，有空就可以去用**（作者 2026-07-17 授权、2026-07-27 再确认）：本地三件套全绿后
+  可自行起训练/推理，**无需逐次点头**。仍须：选卡前原子核卡、不挤占他人正在跑的卡、如实报数。
+- `uv run` 约 1 分钟才真正占显存，发射后轮询 VRAM 爬升再判「真在训」。
 - 长训练用 `screen -dmS` / `nohup` + `python -u`，输出重定向 `logs/`。
 
 ## 硬约束（最易违反）

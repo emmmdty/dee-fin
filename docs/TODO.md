@@ -1,7 +1,8 @@
 # EKG TODO / 实时状态
 
 > 更新于 **2026-07-27**。本文件只记录 v4 的当前执行位置、已验证证据和下一步；设计定义见
-> [`SPEC.md`](SPEC.md)，阶段验收见 [`phases/`](phases/README.md)，历史路线见 `archive/`。
+> [`SPEC.md`](SPEC.md)，阶段验收见 [`phases/`](phases/README.md)，历史路线的留档索引见
+> [`ARCHIVE_INDEX.md`](ARCHIVE_INDEX.md)（正文已移出仓库）。
 
 ## 当前结论
 
@@ -13,7 +14,7 @@
 - **执行状态**：P0 数据完成；**Phase A 代码完成并冒烟验证通过**（判别式 supervised 抽取器 + 训练脚本 +
   评测接线，CPU 测试全绿），全量训练进行中、**真实 F1 未出**。Phase B–E 的真实图实验依赖 A。
 - **旧线定位**：SeDGPL、M1/M2、CS-CRP 和受控 cross-stage 扫描保留为 Ch4 可靠性模块；
-  **SARGE / Phase G 金融应用层已于 2026-07-27 移出主干**（快照 `archive/SARGE_RESULTS_SNAPSHOT.md`）；
+  **SARGE / Phase G 金融应用层已于 2026-07-27 移出主干**（快照取回见 [`ARCHIVE_INDEX.md`](ARCHIVE_INDEX.md)）；
   旧实体中心 TKG 只在 tag `frozen-tkg-line`。
 - **2026-07-23 联网复核**（结论并入 [`EXPERIMENTS.md`](EXPERIMENTS.md) + SPEC §4.5/§5）：数据/SOTA/baseline/
   评测协议全部真实可得，方案可执行；三个必修点——① **Phase A** 唯一硬骨头（0.4%→SOTA 30–37，有文献路线）；
@@ -29,7 +30,9 @@
   doc-id 对齐关系已核验。官方 test 标签隐藏，不进入本地调参。
 - DocEE、It-Happened、ModaFact 已有 processed manifest；MATRES、RAMS、WikiEvents、ECB+ 当前仅 raw
   就位，尚无项目 processed 输出，不能写成“已预处理”。详见 `DATASET_SURVEY.md`。
-- 2026-07-22 当前主干验证：`239 passed / 11 skipped`、Ruff 0 error、`ekg-smoke` 通过。
+- 主干验证（2026-07-27 重构后）：`241 passed / 12 torch-skip`、Ruff 0 error、`ekg-smoke` 通过。
+  ⚠️ 目录改名后 `.venv/bin/` 的第三方 console script shebang 会失效，须 `uv sync --extra dev --reinstall`
+  才能用 `uv run pytest`（详见 [`ENGINEERING_NOTES.md`](ENGINEERING_NOTES.md)）。
 
 ### Phase A 实施（2026-07-23，代码层已完成）
 
@@ -95,7 +98,8 @@
   `causal_cycle_count` **1→0**、`dropped=1`（violation=causal_cycle）；**R1 持平 1.0**（环不删除 query 边，
   召回不受影响）、**R2 f1 0→1.0**（环使 m4 出度 1、破坏 query 边保真，修复恢复）。**修复增益如实落在
   precision 义 R2、非召回义 R1**——与 PHASE_B 止损口径一致（R1 受 α_edge 约束可持平/略降）。
-- **验证**：269 passed / 12 torch-skip、ruff 0、ekg-smoke OK（只增不改）。
+- **验证**：交付时 269 passed / 12 torch-skip、ruff 0、ekg-smoke OK（只增不改）。2026-07-27 重构
+  移除 SARGE/Phase G 测试后**当前主干 = 241 passed / 12 torch-skip**，不得拿旧计数判断回归。
 - **真实 predicted 图数字待跑**：dump producer 已推 origin/main、服务器已 pull（HEAD `771d5c3`）、
   checkpoint `runs/relations/supervised_maven` + valid 710 篇均在；**当前 4 卡全被他人占用**
   （card0/2 ~22GB @99/84%、card1/3 ~16GB @100/98%），按「卡空闲再跑」待机、不挤占他人训练。dump 到手后
@@ -123,7 +127,7 @@
 | D | Ch3 事实性与净化 | ⬜ 未开始；MAVEN-FACT train/valid 已就位 | macro-F1、预测图掉点、净化下游增益 |
 | E | Ch4 闭环与三图传播 | 🟡 SeDGPL/受控扫描已有；闭环控制器未做 | repaired > predicted，三图误差曲线 |
 | F | 端到端误差预算 | 🟡 通用传播原语已有；真实三段预算未做 | 显式前提下的界、分层 FNR、naive 对照 |
-| ~~G~~ | ~~金融应用层~~ | ❌ **2026-07-27 移出**（四章无依赖；快照 `archive/SARGE_RESULTS_SNAPSHOT.md`） | — |
+| ~~G~~ | ~~金融应用层~~ | ❌ **2026-07-27 移出**（四章无依赖；快照取回见 `ARCHIVE_INDEX.md`） | — |
 | H | 多种子、消融、新颖性 | ⬜ 等 A–F 主结果 | mean±std、完整消融、投稿前新颖性扫 |
 | I | 写作 | ⬜ 等主实验 | 初稿与终辩材料 |
 

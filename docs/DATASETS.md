@@ -37,11 +37,11 @@ MAVEN-ERE、MAVEN-Arg 和 MAVEN-FACT 的 train/valid doc-id 集合对齐，支�
 
 ## 旧线与冻结数据（均不进入 v4 主表）
 
-> 金融应用层（Phase G / SARGE）已于 2026-07-27 移出主干，下列数据仍在磁盘但**无 v4 消费方**。
+> 金融应用层（Phase G / SARGE）已于 2026-07-27 移出主干，下列数据**不进入 v4 主表**。
 
 | 数据集 | 当前定位 |
 |---|---|
-| CCKS-2021 FinCausal | 旧中文金融因果数据；Phase G 移除后无现役用途 |
+| CCKS-2021 FinCausal | 中文金融因果。**loader 仍接线在主干**（`relations/data/ccks_causal.py`，`evaluate_relations --loader ccks_causal` / `train_relation_grpo` 的数据集选项，配置 `ccks_causal_zh.yaml`）；作跨语言/跨域旁证，不进 v4 主表 |
 | Astock、CMIN-CN、event_graph_zh | 已证死路（entity-mode 闭环）；**preparer 已于 2026-07-27 删除**，raw 数据仍在磁盘 |
 | ICEWS14/18/05-15、FinDKG | 冻结 TKG 线兼容数据，不进入 v4 主表 |
 

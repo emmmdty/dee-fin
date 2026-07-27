@@ -13,7 +13,9 @@
 ## 现状（2026-07-25，交接时）
 
 - **代码已交付**：commit `771d5c3`（W1–W4 代码）+ `501e798`（docs 回填），已 push `origin/main`；服务器已 `git reset --hard origin/main` 到 `771d5c3`。
-- **本地全绿**：`269 passed / 12 torch-skip`、`ruff 0`、`ekg-smoke OK`。
+- **本地全绿**：交接时 `269 passed / 12 torch-skip`、`ruff 0`、`ekg-smoke OK`。
+  ⚠️ 2026-07-27 重构（改名 ekg + 移除 SARGE/Phase G）后**当前主干 = `241 passed / 12 torch-skip`**，
+  自检以此为准；`uv run pytest` 前须 `uv sync --extra dev --reinstall`（改名后 shebang 失效）。
 - **合成 dump 已验证**（CPU，注入因果环）：`causal_cycle 1→0`、`dropped=1`；**R1 持平 1.0、R2 f1 0→1.0**。
 - **真实图 dump 未出**：探测时**服务器 4 卡全被他人占用**（原子核卡，未硬塞）。已起服务器端 nohup 待机脚本
   `runs/phaseB_dump_wait.sh`（等空卡→自动跑 dump，跳故障 card3、优先 card1，48×5min≈4h 窗口）。**它可能已超时**，接手第一步先查状态。

@@ -8,7 +8,7 @@
 - **card 3 故障**，需 NVML shim：`CUDA_DEVICE_ORDER=PCI_BUS_ID LD_LIBRARY_PATH=/data/TJK/ekg/nvmlshim:$LD_LIBRARY_PATH`。card 0/2 常被用户 `Zhyw` 抢，**优先 card 1**。
 - **tmux/screen 不在非交互 ssh 的 PATH**。起任务用 `bash -lc` + 绝对 uv 路径 `/home/TJK/.local/bin/uv` + `nohup` 或 `screen -dmS`。screen v4.09 可用。
 - **`uv run` 约 1 分钟才真正占显存**。发射后轮询 VRAM 爬升（>1GiB）再判「真在训」，别立刻判死。
-- **起长训练前原子 `nvidia-smi` 核卡，且检查结果不能隔着一次启动复用**（检查后卡可能被别人占，探针必 OOM）。**未经明确要求不起长训练。**
+- **起长训练前原子 `nvidia-smi` 核卡，且检查结果不能隔着一次启动复用**（检查后卡可能被别人占，探针必 OOM）。**GPU 使用无需逐次点头**（作者授权），但不挤占他人正在跑的卡。
 - **ssh 间歇性掉线**：`kex_exchange_identification: Connection reset`（gateway 限速，重试可过）/ cpolar 隧道 `Connection refused`（服务器侧隧道后端没起，客户端无解）。→ **三态判活**（ALIVE / GONE / ssh 失败），**只有成功 ssh 读到进程 GONE 才算训练结束**；ssh/工具失败**绝不**当作被观察对象（训练）的结论。
 - **`pgrep -af <pat>` 会匹配探针自身命令行**（命令里含该字符串）。用 `[e]valuate_cgep` 括号技巧或核对 PID。
 - **服务器不是 git 仓库**（本地是）。同步用 `scp`/`rsync` **指定文件** + `sha256sum` 双端核。**别跑 `rsync --delete`**（会删 remote-only 的 `runs/`、`nvmlshim/`、`scripts/nvml_hide_faulted_gpu.so`）。远端产物在 `/data/TJK/ekg/runs`。
@@ -35,11 +35,27 @@
 - **blackboard 不可变**：agent 只读、在 **copy** 上标注。
 - **给已调好的门控编码器加 embedding 输入流，必须 no-op 起步**（M2 结构感知编码，2026-07-17）：默认 `nn.Embedding` 是 N(0,1)（行范数 ~28）→ 碾压融合 `h2`（~8）、init 时把事件 token 的 input embedding 扰动 **185%**（`||h3−h2||/||h2||`=1.85），lr=1e-6 十轮救不回 → **MRR 腰斩 0.1867→0.088**（是 bug、不是「结构有害」的结论）。修＝**zero-init `nn.Embedding` + 门控残差** `h3=h2+g·struct`（`GatedFusion.residual`，y=0 时恒等）→ init 扰动 →0、ON 臂起点＝baseline。诊断 `diag_m2.py` 量 `||h3−h2||/||h2||`。对照 SeDGPL 对 `<a_i>` 新行专门 mean-init 同理。
 
+## 环境 / 工具链
+
+- **项目目录改名后必须 `uv sync --extra dev --reinstall`，只跑 `uv sync` 不够**（2026-07-27，
+  `Fin-EKG` → `ekg`）：`.venv/bin/` 里第三方 console script 的 shebang 是**安装时写死的绝对路径**
+  （`#!/…/Fin-EKG/.venv/bin/python3`），`uv sync` 不会重写已存在的脚本 → `uv run pytest` 报
+  **`ModuleNotFoundError: No module named 'pydantic'`**（31 collection errors），看着像依赖坏了。
+  **机制**：shebang 解释器不存在 → `execve` 返回 ENOENT → `execvp` 当成「这个文件没找到」**继续沿
+  PATH 找下一个同名程序**，于是跑到了 `~/.local/bin/pytest`（`#!/usr/bin/python3`，系统 python，
+  没有本项目依赖）。所以症状不是「bad interpreter」而是「装好的包全都 import 不到」。
+  **判据**：`uv run python -m pytest` 正常而 `uv run pytest` 挂 ⇒ 一定是 shebang，不是环境。
+  实测受影响 9 个：`pytest` `py.test` `coverage{,3,-3.10}` `dotenv` `f2py` `pygmentize` `tqdm`；
+  本项目自己的 `ekg-smoke` 因改名时重装而正常。**服务器 pull 后同理。**
+- **改名后 `__pycache__` 里的 bytecode 仍嵌旧路径**（`co_filename`）→ traceback 显示已不存在的目录、
+  源码行渲染成 `???`，误导定位。改名/搬目录后先
+  `find . -name __pycache__ -not -path "./.venv/*" -exec rm -rf {} +` 再判断。
+
 ## 纪律（硬约束）
 
-- 2026-07-22 当前主干：本地 `uv run pytest` = **239 passed / 11 skipped**（skip 均为本地无 torch 的
-  神经门控测试）；`uv run ruff check src tests scripts` **0 error（≤100 列）**；`ekg-smoke` 通过。
-  历史测试计数随旧 TKG 线移出主干而变化，不得拿旧计数判断当前回归。
+- 主干验证（2026-07-27 重构后）：本地 `uv run pytest` = **241 passed / 12 skipped**（skip 均为本地
+  无 torch 的神经门控测试）；`uv run ruff check src tests scripts` **0 error（≤100 列）**；
+  `ekg-smoke` 通过。测试计数随旧线移出主干而变化，不得拿旧计数（239/11、269/12）判断当前回归。
 - 包/函数名**不得含 `ch1/ch2/ch3`**；新组件走 registry + lazy import；GPU 组件配 CPU 缓存回放。
 - **`EventNode` schema 零新增字段**（扩展用 `metadata`）；`CgepNode` 可加字段。
 - 不可改的测试锁：`tests/core/test_propagation.py`。

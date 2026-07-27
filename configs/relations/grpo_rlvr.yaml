@@ -1,5 +1,7 @@
 # Relation stage — GRPO post-training with the composite verifiable reward
-# (verifier-as-reward; docs/archive/RL_DESIGN.md §2). Main method.
+# (verifier-as-reward). Retained as a relation-stage baseline/ablation, not the
+# v4 headline method; the full historical design was archived out of the repo
+# (see docs/ARCHIVE_INDEX.md).
 # Requires the `llm` + `rl` extras and a GPU. The default rollout backend
 # expects `trl vllm-serve` on a second GPU:
 #   CUDA_VISIBLE_DEVICES=0 uv run --extra serve --extra rl trl vllm-serve \

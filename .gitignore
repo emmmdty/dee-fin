@@ -27,14 +27,11 @@ data/raw/*
 models/
 outputs/
 runs/
+logs/
 *.ckpt
 *.safetensors
 
-# Generated reports / presentation artifacts (archived binaries kept out of git)
-docs/archive/projects/
-docs/archive/midterm/data/
-docs/archive/midterm/figures/
-docs/archive/midterm/**/__pycache__/
+# Generated reports / presentation artifacts (历史归档已移出仓库, 见 docs/ARCHIVE_INDEX.md)
 *.docx
 *.pdf
 *.pptx

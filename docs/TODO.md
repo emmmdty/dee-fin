@@ -98,12 +98,14 @@
   `causal_cycle_count` **1→0**、`dropped=1`（violation=causal_cycle）；**R1 持平 1.0**（环不删除 query 边，
   召回不受影响）、**R2 f1 0→1.0**（环使 m4 出度 1、破坏 query 边保真，修复恢复）。**修复增益如实落在
   precision 义 R2、非召回义 R1**——与 PHASE_B 止损口径一致（R1 受 α_edge 约束可持平/略降）。
-- **验证**：交付时 269 passed / 12 torch-skip、ruff 0、ekg-smoke OK（只增不改）。2026-07-27 重构
-  移除 SARGE/Phase G 测试后**当前主干 = 241 passed / 12 torch-skip**，不得拿旧计数判断回归。
-- **真实 predicted 图数字待跑**：dump producer 已推 origin/main、服务器已 pull（HEAD `771d5c3`）、
-  checkpoint `runs/relations/supervised_maven` + valid 710 篇均在；**当前 4 卡全被他人占用**
-  （card0/2 ~22GB @99/84%、card1/3 ~16GB @100/98%），按「卡空闲再跑」待机、不挤占他人训练。dump 到手后
-  回填 violation/cycle 前后、分层 FNR、准入集大小、R1/R2 三档（raw→repaired→repaired+admitted）真实轨迹。
+- **验证基线（两端不同不是回归）**：本地无 torch = **241 passed / 12 skipped**；服务器有 torch =
+  **252 passed / 1 skipped**。ruff 0、ekg-smoke OK（只增不改）。交付当时是 269/12，2026-07-27 重构
+  移除 SARGE/Phase G 测试后降到 241；**不得拿旧计数判断回归**。
+- **真实 predicted 图数字待跑**：dump producer 已推 origin/main、服务器已对齐 HEAD、checkpoint
+  `runs/relations/supervised_maven` + valid 710 篇均在位、链路已验证（config 解析 + `--help` 通）。
+  **2026-07-27 全天 4 卡被他人占满**（15–18GB @ 87–100%），按「卡空闲再跑」不挤占；待机脚本已修好但
+  **按作者指示主动停掉**，服务器当前无我们的进程。dump 到手后回填 violation/cycle 前后、分层 FNR、
+  准入集大小、R1/R2 三档（raw→repaired→repaired+admitted）真实轨迹。
 
 ### Ch4 先行模块（来自 v3，降级复用）
 
@@ -134,9 +136,11 @@
 ## 下一步
 
 1. ~~Phase A 判别式抽取器~~ ✅ 达标（causal F1 .250 / subevent .213）。~~Phase B W1–W4 代码~~ ✅ CPU 全绿已推。
-2. **⭐当前队首 = Phase B 真实图闭环**：服务器空卡后跑 dump → scp 回 → `consistency_repair_report.py`
-   → 把三档真实轨迹（violation/cycle、分层 FNR、准入集、R1/R2）回填 TODO/EXPERIMENTS「Phase B 实施」段
-   （现为 PENDING）。**照 [`phases/PHASE_B_HANDOFF.md`](phases/PHASE_B_HANDOFF.md) 逐步执行**（服务器待机脚本已起）。
+2. **⭐当前队首 = Phase B 真实图闭环（唯一阻塞项 = 等空卡）**：服务器空卡后跑 dump → scp 回 →
+   `consistency_repair_report.py` → 把三档真实轨迹（violation/cycle、分层 FNR、准入集、R1/R2）回填
+   TODO/EXPERIMENTS「Phase B 实施」段（现为 PENDING）。**照
+   [`phases/PHASE_B_HANDOFF.md`](phases/PHASE_B_HANDOFF.md) 逐步执行**。环境已就绪、无待跑任务在等，
+   开工第一步是 `nvidia-smi` 看卡。
 3. Phase B 真实数字出后进 C（Ch1 规范节点）/D（Ch3 事实性）；E（Ch4 闭环 headline）依赖 A·B·C·D 齐。
 4. 多种子和进一步调 M1/M2 放到 Phase H；主闭环未通前不扩张实验面。
 5. 每章开跑前照 [`EXPERIMENTS.md`](EXPERIMENTS.md) 定 baseline（新老搭配）+ 消融矩阵 + 评测档；Ch4 主表

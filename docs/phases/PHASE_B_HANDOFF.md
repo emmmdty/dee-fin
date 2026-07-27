@@ -21,8 +21,14 @@
   `/data/TJK/Fin-EKG/src`（`import ekg` 与 `import finekg` 双双失败）、56 个 console script shebang 全废；
   待机脚本自己也 `cd` 到旧路径 → 每次 exit 2，**从 2026-07-25 起就没真正等过卡**。均已修好并验证
   （`import ekg` OK、torch 2.6.0+cu124 完好、checkpoint 与 710 篇 gold 在位、`--help` 通）。
-- **真实图 dump 仍未出**：2026-07-27 11:50 探测时 4 卡全占（15–18GB @ 98–100%），未硬塞。
-  待机脚本已修好并重起（PID 记于 status 文件，**窗口放宽到 288×5min≈24h**）。接手第一步先查状态。
+- **真实图 dump 仍未出，且当前没有在等的 GPU 任务**：2026-07-27 全天 4 卡被他人占满
+  （15–18GB @ 87–100%），未硬塞。待机脚本已修好并验证可用，但**按作者指示已主动停掉**
+  （`status` 末行 `STOPPED-BY-USER 2026-07-27 12:32`），服务器上无我们的进程。
+  接手时**先 `nvidia-smi` 看有没有空卡**：有空卡直接走 Step 1；没有再决定要不要起待机
+  （`ssh gpu-4090 'bash -lc "cd /data/TJK/ekg && nohup bash runs/phaseB_dump_wait.sh >/dev/null 2>&1 &"'`，
+  288×5min≈24h 窗口，会在抢到空卡时**自动开跑**——别在不想无人值守跑 GPU 时起它）。
+  ⚠️ kill 待机脚本时注意：它卡在 `sleep 300`，SIGTERM 会被 bash 挂起到 sleep 返回才生效，
+  判死要看 `status` 文件**是否还在按 5min 增长**，别只看一次 `pgrep`。
 
 ## 依赖 · 产物
 

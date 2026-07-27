@@ -98,7 +98,9 @@ CUDA_VISIBLE_DEVICES=<card> HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
   > logs/phaseB_dump.log 2>&1
 ```
 
-卡忙时用服务器端待机脚本（等空卡自动开跑，288×5min≈24h 窗口）：
+卡忙时可用服务器端待机脚本（等空卡**自动开跑**，288×5min≈24h 窗口）——
+**当前状态：已修好并验证可用，但按作者指示处于停止态**（`status` 末行 `STOPPED-BY-USER`）。
+它会在无人值守时启动 GPU 任务，**只在你确实想要无人值守跑的时候才起**：
 
 ```bash
 ssh gpu-4090 'bash -lc "cd /data/TJK/ekg && nohup bash runs/phaseB_dump_wait.sh >/dev/null 2>&1 &"'
@@ -106,7 +108,10 @@ ssh gpu-4090 'tail -3 /data/TJK/ekg/runs/relations/phaseB_dump.status'   # 轮�
 ```
 
 `status` 末行读法：`DONE rc=0 dump_lines=NNN` = 成功；`DONE rc≠0` = 读 `logs/phaseB_dump.log`；
-`TIMEOUT` / 进程已死 = 没抢到卡，重起待机。
+`TIMEOUT` / `STOPPED-BY-USER` / 进程已死 = 没抢到卡，按需重起。
+
+⚠️ **停它要按三态判活**：脚本卡在 `sleep 300`，SIGTERM 被 bash 挂起到 sleep 返回才生效，kill 后仍会
+再写 1–2 条 `WAIT`。判死的决定性依据是 **`status` 文件是否还在按 5min 增长**，不是单次 `pgrep`。
 
 ## 7. 仍可复现的 Ch4 基线
 

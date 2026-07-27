@@ -37,6 +37,17 @@
 
 ## 环境 / 工具链
 
+- ⛔ **服务器上跑 `uv run` / `uv sync` 会拆掉已验证的 GPU 栈**（2026-07-27 `--dry-run` 实测）：远端 venv
+  装的是 `llm+serve+rl+gnn+dev` 全套 extras，而 uv 会把环境**对齐到你给出的 extras 集合、卸掉多余的**。
+  裸 `uv sync` → **卸 165 个包**（torch/transformers/vllm/trl/peft/bitsandbytes 全没）；
+  `--extra llm` → **仍卸 109 个**（vllm/trl/ray/xformers/torchvision/torch-geometric）；全套五个 extra
+  才只卸 `patchelf`/`setuptools` 构建残留。恢复要重下数 GB。**服务器一律 `.venv/bin/python`**；
+  非要用 uv 就 `uv run --no-sync`。`uv pip install -e . --no-deps` 是安全的。
+  ⚠️ 这条曾潜伏在 `PHASE_B_HANDOFF` Step 1 与服务器待机脚本里（都是裸 `uv run python`）——
+  只因待机脚本 `cd` 到改名前的旧路径先 exit 2，环境才没被拆。
+- **测试计数两端不同，不是回归**：本地无 torch = **241 passed / 12 skipped**；服务器有 torch =
+  **252 passed / 1 skipped**（`test_model_skip.py` 的 skip 条件是反的：本地 skip「需要 torch」，
+  服务器 skip「torch 已安装」）。判回归要跟同一端的基线比。
 - **项目目录改名后必须 `uv sync --extra dev --reinstall`，只跑 `uv sync` 不够**（2026-07-27，
   `Fin-EKG` → `ekg`）：`.venv/bin/` 里第三方 console script 的 shebang 是**安装时写死的绝对路径**
   （`#!/…/Fin-EKG/.venv/bin/python3`），`uv sync` 不会重写已存在的脚本 → `uv run pytest` 报
@@ -47,9 +58,30 @@
   **判据**：`uv run python -m pytest` 正常而 `uv run pytest` 挂 ⇒ 一定是 shebang，不是环境。
   实测受影响 9 个：`pytest` `py.test` `coverage{,3,-3.10}` `dotenv` `f2py` `pygmentize` `tqdm`；
   本项目自己的 `ekg-smoke` 因改名时重装而正常。**服务器 pull 后同理。**
+- **服务器上改名不能靠 `--reinstall`**（会触发 §0 的拆栈），要**手工重定位 venv**（2026-07-27 实操，
+  `/data/TJK/Fin-EKG` → `/data/TJK/ekg`，56 个 shebang + editable 安装全废，`import ekg` 与
+  `import finekg` 双双失败）：
+  ```bash
+  cd /data/TJK/ekg
+  # 1) shebang：只改第 1 行，跳符号链接与无 shebang 的二进制（ruff/ninja/patchelf 别 sed！）
+  for f in .venv/bin/*; do [ -L "$f" ] && continue; [ -f "$f" ] || continue
+    head -1 "$f" | grep -q '^#!/data/TJK/Fin-EKG/' || continue
+    sed -i '1s|^#!/data/TJK/Fin-EKG/|#!/data/TJK/ekg/|' "$f"; done
+  # 2) activate 系列的 VIRTUAL_ENV 路径 + pyvenv.cfg 的 prompt
+  # 3) editable 安装（包名也变了）：旧 dist-info 必须先卸
+  export VIRTUAL_ENV=/data/TJK/ekg/.venv
+  /home/TJK/.local/bin/uv pip uninstall finekg
+  /home/TJK/.local/bin/uv pip install -e . --no-deps     # --no-deps = 不碰 torch/vllm
+  ```
+  editable 的 `_editable_impl_<name>.pth` 里就是一行绝对路径 `<root>/src`；dist-info 名跟着包名变
+  （`finekg-0.1.0.dist-info` → `ekg-0.1.0.dist-info`），旧入口脚本 `finekg-smoke` 也要一并消失。
+  验收：`.venv/bin/python -c "import ekg, torch"` + `.venv/bin/pytest` + `.venv/bin/ekg-smoke`。
 - **改名后 `__pycache__` 里的 bytecode 仍嵌旧路径**（`co_filename`）→ traceback 显示已不存在的目录、
   源码行渲染成 `???`，误导定位。改名/搬目录后先
   `find . -name __pycache__ -not -path "./.venv/*" -exec rm -rf {} +` 再判断。
+- **remote-only 残留会悄悄留在 docs/**：服务器 `docs/{chapter1,midterm}`（32M，历史 scp 遗留、untracked）
+  `git reset --hard` 不会删。改文档结构后要在服务器侧核一遍 `ls docs/`，多出来的移到
+  `/data/TJK/ekg-backup-20260727/`（**不要 `git clean -fdx`**，会连 `runs/`/`data/` 一起删）。
 
 ## 纪律（硬约束）
 

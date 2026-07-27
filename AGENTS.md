@@ -24,7 +24,11 @@ uv run ekg-smoke    # CPU 端到端冒烟
 
 - SSH `gpu-4090`（cpolar 隧道，间歇性掉线）。**ssh 失败 ≠ 远端进程死亡**：三态判活（ALIVE / GONE /
   ssh 失败），只有成功 ssh 读到进程 GONE 才算结束。
-- 远端根 `/data/TJK/ekg`；远端 uv `/home/TJK/.local/bin/uv`；远端 Python `.venv/bin/python`。
+- 远端根 `/data/TJK/ekg`；远端 Python `.venv/bin/python`。
+- ⛔ **服务器上不要跑 `uv run` / `uv sync`**：远端装的是全套 extras，uv 会对齐到你给的 extras 集合并
+  **卸掉多余的**——裸 `uv sync` 卸 165 个包（torch/vllm/trl 全没）、`--extra llm` 仍卸 109 个。
+  一律用 `.venv/bin/python` / `.venv/bin/pytest`；非要用 uv 必须 `--no-sync`。
+  （`uv pip install -e . --no-deps` 安全，改名/换路径后用它重建 editable 安装。）
 - **代码同步走 git**：远端 `git fetch && git reset --hard origin/main` 拉 `github.com/emmmdty/dee-fin`
   （PUBLIC，免 token）；**数据/产物/大文件走 `scp` + `sha256` 双端核**（数据不进 git）。**禁 `rsync --delete`
   与远端 `git clean -fdx`**（会删 `runs/`、`nvmlshim/` 等 remote-only 产物）。完整闭环 + 远端首次 git 化见 `docs/PIPELINE.md`。

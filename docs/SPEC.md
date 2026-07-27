@@ -220,8 +220,8 @@ reachability + conformal 预算**，不在「无金标优化下游」本身。**
 ```bash
 uv sync --extra dev && uv run pytest && uv run ruff check src tests scripts   # 本地：契约/评测/冒烟全绿
 uv run python scripts/build_cgep.py --split train+valid --report-stats         # CGEP 重建验收
-# 服务器 CGEP 训练(screen/nohup + 绝对 uv 路径, 见 GPU_RUNBOOK/AGENTS.md):
+# 服务器 CGEP 训练(screen/nohup; ⛔ 用 .venv/bin/python, 不要 uv run — 见 GPU_RUNBOOK §0):
 #   CUDA_VISIBLE_DEVICES=<空卡> HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-#   uv run --extra llm python -u scripts/evaluate_cgep.py --dataset maven --predictor sedgpl \
+#   .venv/bin/python -u scripts/evaluate_cgep.py --dataset maven --predictor sedgpl \
 #     --model-path <roberta-base> --epochs 10 --output runs/cgep/maven_sedgpl.json
 ```

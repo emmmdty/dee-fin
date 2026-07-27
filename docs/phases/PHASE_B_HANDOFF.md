@@ -10,15 +10,19 @@
 （`raw → repaired → repaired+admitted`）：violation/cycle 前后、分层 FNR、准入集大小、ECG 可重建率 R1/R2。
 这是**首次用真实 predicted ECG 做闭环**，解堵 Ch4（Phase E）headline。
 
-## 现状（2026-07-25，交接时）
+## 现状（2026-07-27 更新）
 
-- **代码已交付**：commit `771d5c3`（W1–W4 代码）+ `501e798`（docs 回填），已 push `origin/main`；服务器已 `git reset --hard origin/main` 到 `771d5c3`。
-- **本地全绿**：交接时 `269 passed / 12 torch-skip`、`ruff 0`、`ekg-smoke OK`。
-  ⚠️ 2026-07-27 重构（改名 ekg + 移除 SARGE/Phase G）后**当前主干 = `241 passed / 12 torch-skip`**，
-  自检以此为准；`uv run pytest` 前须 `uv sync --extra dev --reinstall`（改名后 shebang 失效）。
+- **代码已交付**：`771d5c3`（W1–W4）+ `501e798`（docs 回填），后经 `3390363`（改名 ekg + 移除
+  SARGE/Phase G）与 `2e6703b`（一致性收口 + 环境修复）。服务器已对齐 `origin/main`。
+- **两端校验基线**（计数不同不是回归）：本地无 torch = `241 passed / 12 skipped`；
+  服务器有 torch = `252 passed / 1 skipped`。ruff 0、`ekg-smoke` OK。
 - **合成 dump 已验证**（CPU，注入因果环）：`causal_cycle 1→0`、`dropped=1`；**R1 持平 1.0、R2 f1 0→1.0**。
-- **真实图 dump 未出**：探测时**服务器 4 卡全被他人占用**（原子核卡，未硬塞）。已起服务器端 nohup 待机脚本
-  `runs/phaseB_dump_wait.sh`（等空卡→自动跑 dump，跳故障 card3、优先 card1，48×5min≈4h 窗口）。**它可能已超时**，接手第一步先查状态。
+- **环境已修复（2026-07-27）**——此前服务器**根本跑不了任何脚本**：目录改名后 editable 安装仍指向
+  `/data/TJK/Fin-EKG/src`（`import ekg` 与 `import finekg` 双双失败）、56 个 console script shebang 全废；
+  待机脚本自己也 `cd` 到旧路径 → 每次 exit 2，**从 2026-07-25 起就没真正等过卡**。均已修好并验证
+  （`import ekg` OK、torch 2.6.0+cu124 完好、checkpoint 与 710 篇 gold 在位、`--help` 通）。
+- **真实图 dump 仍未出**：2026-07-27 11:50 探测时 4 卡全占（15–18GB @ 98–100%），未硬塞。
+  待机脚本已修好并重起（PID 记于 status 文件，**窗口放宽到 288×5min≈24h**）。接手第一步先查状态。
 
 ## 依赖 · 产物
 
@@ -48,11 +52,15 @@ ssh gpu-4090 'bash -lc "tail -5 /data/TJK/ekg/runs/relations/phaseB_dump.status;
 
 ```bash
 ssh gpu-4090 'bash -lc "cd /data/TJK/ekg && CUDA_VISIBLE_DEVICES=<card> \
-  /home/TJK/.local/bin/uv run python -u scripts/evaluate_relations.py \
+  HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  .venv/bin/python -u scripts/evaluate_relations.py \
   --config configs/relations/supervised_dump.yaml \
   --dump-predictions runs/relations/supervised_dump.jsonl \
   --output runs/relations/supervised_dump_metrics.json"'
 ```
+
+⛔ **必须 `.venv/bin/python`，不要 `uv run`** —— 服务器装的是全套 extras，`uv run` 会按默认 extras
+把 torch/vllm/trl 卸掉（连 `--extra llm` 都卸 109 个包）。详见 [`../GPU_RUNBOOK.md`](../GPU_RUNBOOK.md) §0。
 
 `supervised_dump.yaml` = supervised 抽取器 + checkpoint + **`consistency: identity` + 无准入** → 产**原始 scored+grounded 边**（修复/准入全走离线，checkpoint 不下本地）。
 

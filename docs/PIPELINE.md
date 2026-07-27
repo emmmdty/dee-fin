@@ -23,10 +23,14 @@
   - `nvmlshim/` → 服务器 remote-only（card 3 NVML shim）
 - ⚠️ **服务器 `git pull` 拿不到数据**（数据不在 git）：首次 / 更新数据用 scp（见 §4 step 3）。
 
-## 3. 远端 git 状态（已就位 · 2026-07-23 核实）
+## 3. 远端 git 状态（2026-07-27 核实）
 
-远端 `/data/TJK/ekg` **已是 git 仓库**，`main` 跟踪 `origin/main`、对齐 `f87175d`，tracked 工作区干净；
+远端 `/data/TJK/ekg` **已是 git 仓库**，`main` 跟踪 `origin/main`、对齐 `2e6703b`，tracked 工作区干净；
 `runs/ nvmlshim/ data/raw/` 等 remote-only 产物在原位。**网络可直达 GitHub**（`git fetch` 成功，PUBLIC 免 token）。
+
+- ⛔ **服务器上别跑 `uv run` / `uv sync`**（会拆掉已验证的 GPU 栈，见
+  [`GPU_RUNBOOK.md`](GPU_RUNBOOK.md) §0）：一律 `.venv/bin/python`。
+- 远端仓库外备份 `/data/TJK/ekg-backup-20260727/`（历史 `docs/{chapter1,midterm}` 等 untracked 残留）。
 
 - 首次核实时远端在 `master@06e2d1f` 且有 32 个 tracked 改动（历史 scp 遗留、未 commit）——已 `git stash` 保全为
   `stash@{0}`（`server-scp-snapshot-2026-07-23`），随时 `git stash show -p stash@{0}` 找回，**不丢数据**。
@@ -57,9 +61,11 @@
    ```bash
    cd /data/TJK/ekg
    CUDA_VISIBLE_DEVICES=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-     /home/TJK/.local/bin/uv run --extra llm python -u scripts/<x>.py ... \
+     .venv/bin/python -u scripts/<x>.py ... \
      > logs/<x>.log 2>&1 &
    ```
+   ⛔ 用 `.venv/bin/python`，**不要 `uv run`**（连 `--extra llm` 都会卸掉 109 个包，见
+   [`GPU_RUNBOOK.md`](GPU_RUNBOOK.md) §0）。
 5. **出问题 → 回传本地**（日志 + 结果，在本地执行）
    ```bash
    scp gpu-4090:/data/TJK/ekg/logs/<x>.log logs/

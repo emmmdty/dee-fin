@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from finekg.core.eval import consistency_report
-from finekg.core.graph import (
+from ekg.core.eval import consistency_report
+from ekg.core.graph import (
     close_pairs,
     coreference_clusters,
     find_cycles,
     is_acyclic,
     transitive_closure_pairs,
 )
-from finekg.core.schema import EventGraph, EventNode, RelationEdge, RelationType
+from ekg.core.schema import EventGraph, EventNode, RelationEdge, RelationType
 
 
 def _node(eid: str) -> EventNode:

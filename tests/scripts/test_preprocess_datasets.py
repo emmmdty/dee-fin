@@ -1,4 +1,3 @@
-import csv
 import importlib.util
 import json
 from pathlib import Path
@@ -96,67 +95,6 @@ def test_prepare_tkg_splits_writes_split_combined_and_smoke_files(tmp_path, monk
     ]
     manifest = json.loads((canon / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["splits"]["combined"]["records"] == 4
-
-
-def test_prepare_astock_preserves_official_splits_and_writes_manifest(tmp_path, monkeypatch):
-    monkeypatch.setattr(preprocess, "RAW_ROOT", tmp_path / "raw")
-    monkeypatch.setattr(preprocess, "PROCESSED_ROOT", tmp_path / "processed")
-    raw = tmp_path / "raw" / "astock" / "Astock-main" / "data"
-    raw.mkdir(parents=True)
-    header = ["CODE", "DATE", "label", "text_a"]
-    for split in ("train", "val", "test", "ood"):
-        with (raw / f"{split}.csv").open("w", encoding="utf-8", newline="") as fh:
-            writer = csv.writer(fh, delimiter="\t")
-            writer.writerow(header)
-            writer.writerow(["000001", "2021-01-01", "1", "news"])
-
-    counts = preprocess.prepare_astock()
-
-    processed = tmp_path / "processed" / "astock"
-    assert counts == {"train": 1, "val": 1, "test": 1, "ood": 1}
-    assert (processed / "train.tsv").exists()
-    manifest = json.loads((processed / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["splits"]["ood"]["records"] == 1
-    assert manifest["schema"]["train"] == header
-
-
-def test_prepare_cmin_cn_writes_inventory_manifest(tmp_path, monkeypatch):
-    monkeypatch.setattr(preprocess, "RAW_ROOT", tmp_path / "raw")
-    monkeypatch.setattr(preprocess, "PROCESSED_ROOT", tmp_path / "processed")
-    root = tmp_path / "raw" / "cmin_cn" / "CMIN-CN"
-    price = root / "price" / "preprocessed"
-    news = root / "news" / "preprocessed" / "平安银行"
-    price.mkdir(parents=True)
-    news.mkdir(parents=True)
-    (price / "平安银行.txt").write_text("2018-01-03\t0.1\t1\t2\t3\t4\t5\n", encoding="utf-8")
-    (news / "2018-01-03").write_text(
-        '{"text":["新","闻"],"created_at":"2018-01-03"}\n',
-        encoding="utf-8",
-    )
-
-    manifest = preprocess.prepare_cmin_cn()
-
-    processed = tmp_path / "processed" / "cmin_cn"
-    assert manifest["price_files"] == 1
-    assert manifest["news_stock_dirs"] == 1
-    assert manifest["news_date_files"] == 1
-    assert (processed / "manifest.json").exists()
-
-
-def test_prepare_event_graph_zh_manifest_uses_relative_paths(tmp_path, monkeypatch):
-    monkeypatch.setattr(preprocess, "REPO_ROOT", tmp_path)
-    monkeypatch.setattr(preprocess, "DATA_ROOT", tmp_path / "data")
-    monkeypatch.setattr(preprocess, "RAW_ROOT", tmp_path / "data" / "raw")
-    monkeypatch.setattr(preprocess, "PROCESSED_ROOT", tmp_path / "data" / "processed")
-    raw = tmp_path / "data" / "raw" / "event_graph_zh"
-    raw.mkdir(parents=True)
-    (raw / "event_graph.json").write_text('{"nodes": {}, "edges": []}', encoding="utf-8")
-
-    manifest = preprocess.prepare_event_graph_zh()
-
-    assert manifest is not None
-    assert manifest["source"] == "data/raw/event_graph_zh/event_graph.json"
-    assert manifest["processed_dir"] == "data/processed/event_graph_zh"
 
 
 def test_config_data_paths_use_processed_layout():

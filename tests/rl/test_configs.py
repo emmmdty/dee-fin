@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from finekg.core.config import load_config
-from finekg.relations.rl.rewards import relation_reward_components
-from finekg.rl.curriculum import phases_from_config
+from ekg.core.config import load_config
+from ekg.relations.rl.rewards import relation_reward_components
+from ekg.rl.curriculum import phases_from_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

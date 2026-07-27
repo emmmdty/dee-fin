@@ -1,29 +1,30 @@
-# Fin-EKG · coding agent 上下文
+# EKG · coding agent 上下文
 
 > **`CLAUDE.md` 与 `AGENTS.md` 内容保持一致**（Claude Code 读 `CLAUDE.md`，Codex 读 `AGENTS.md`）。
 > **改一份必须同步另一份。** 设计总纲 → `docs/SPEC.md`｜实时状态 → `docs/TODO.md`｜工程坑 →
 > `docs/ENGINEERING_NOTES.md`｜服务器运维 → `docs/GPU_RUNBOOK.md`｜三端协作流水线 → `docs/PIPELINE.md`。
-> **当前唯一研究主线是 v4 四章（身份 → 结构 → 事实 → 传播/下游）**；SARGE 属金融应用层，
-> 旧 TKG 线只在 tag `frozen-tkg-line` 保留。出现冲突时以 `docs/SPEC.md` 为准。
+> **当前唯一研究主线是 v4 四章（身份 → 结构 → 事实 → 传播/下游）**；旧 TKG 线只在 tag
+> `frozen-tkg-line` 保留，**SARGE / 金融应用层已于 2026-07-27 整体移出主干**（四章无一依赖；
+> 结果快照 `docs/archive/SARGE_RESULTS_SNAPSHOT.md`）。出现冲突时以 `docs/SPEC.md` 为准。
 
 ## 校验命令（改代码后必跑）
 
 ```bash
 uv run pytest          # 全绿（只增不改；旧 TKG 线已移出主干，见 tag frozen-tkg-line）
 uv run ruff check src tests scripts   # 0 error，≤100 列
-uv run finekg-smoke    # CPU 端到端冒烟
+uv run ekg-smoke    # CPU 端到端冒烟
 ```
 
 ## 本地环境
 
-- 工作区 `/home/tjk/myProjects/masterProjects/Fin-EKG`；WSL2 上 Ubuntu，zsh；Python 用 `uv`。
+- 工作区 `/home/tjk/myProjects/masterProjects/ekg`；WSL2 上 Ubuntu，zsh；Python 用 `uv`。
 - **本地是 git 仓库**（分支 `main`）。提交/推送**仅在用户明确要求时**。
 
 ## GPU 服务器
 
 - SSH `gpu-4090`（cpolar 隧道，间歇性掉线）。**ssh 失败 ≠ 远端进程死亡**：三态判活（ALIVE / GONE /
   ssh 失败），只有成功 ssh 读到进程 GONE 才算结束。
-- 远端根 `/data/TJK/Fin-EKG`；远端 uv `/home/TJK/.local/bin/uv`；远端 Python `.venv/bin/python`。
+- 远端根 `/data/TJK/ekg`；远端 uv `/home/TJK/.local/bin/uv`；远端 Python `.venv/bin/python`。
 - **代码同步走 git**：远端 `git fetch && git reset --hard origin/main` 拉 `github.com/emmmdty/dee-fin`
   （PUBLIC，免 token）；**数据/产物/大文件走 `scp` + `sha256` 双端核**（数据不进 git）。**禁 `rsync --delete`
   与远端 `git clean -fdx`**（会删 `runs/`、`nvmlshim/` 等 remote-only 产物）。完整闭环 + 远端首次 git 化见 `docs/PIPELINE.md`。

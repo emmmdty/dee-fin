@@ -13,14 +13,14 @@
 ## 现状（2026-07-25，交接时）
 
 - **代码已交付**：commit `771d5c3`（W1–W4 代码）+ `501e798`（docs 回填），已 push `origin/main`；服务器已 `git reset --hard origin/main` 到 `771d5c3`。
-- **本地全绿**：`269 passed / 12 torch-skip`、`ruff 0`、`finekg-smoke OK`。
+- **本地全绿**：`269 passed / 12 torch-skip`、`ruff 0`、`ekg-smoke OK`。
 - **合成 dump 已验证**（CPU，注入因果环）：`causal_cycle 1→0`、`dropped=1`；**R1 持平 1.0、R2 f1 0→1.0**。
 - **真实图 dump 未出**：探测时**服务器 4 卡全被他人占用**（原子核卡，未硬塞）。已起服务器端 nohup 待机脚本
   `runs/phaseB_dump_wait.sh`（等空卡→自动跑 dump，跳故障 card3、优先 card1，48×5min≈4h 窗口）。**它可能已超时**，接手第一步先查状态。
 
 ## 依赖 · 产物
 
-- **前置产物**（服务器 `/data/TJK/Fin-EKG/`，均已在位）：checkpoint `runs/relations/supervised_maven`、
+- **前置产物**（服务器 `/data/TJK/ekg/`，均已在位）：checkpoint `runs/relations/supervised_maven`、
   gold valid `data/processed/maven_ere/valid.jsonl`（本地同路径也在，710 篇）。
 - **产出**：`runs/relations/supervised_dump.jsonl`（原始边 dump）→ `runs/relations/consistency_repair_supervised.json`（离线分析）。
 - **数据/产物走 scp + sha256 双端核，不进 git**（`CLAUDE.md`/`PIPELINE.md`）。
@@ -30,7 +30,7 @@
 ### 0) 先查服务器待机脚本状态
 
 ```bash
-ssh gpu-4090 'bash -lc "tail -5 /data/TJK/Fin-EKG/runs/relations/phaseB_dump.status; \
+ssh gpu-4090 'bash -lc "tail -5 /data/TJK/ekg/runs/relations/phaseB_dump.status; \
   echo --alive--; pgrep -af phaseB_dump_wait.sh | grep -v bash.-lc; \
   echo --smi--; nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits"'
 ```
@@ -38,14 +38,14 @@ ssh gpu-4090 'bash -lc "tail -5 /data/TJK/Fin-EKG/runs/relations/phaseB_dump.sta
 按末行分三种情况：
 
 - **`DONE rc=0 dump_lines=NNN`** → 跳到 **Step 2**（dump 已生成在服务器）。
-- **`DONE rc=<非0>`** → dump 跑挂了，读 `ssh gpu-4090 'tail -40 /data/TJK/Fin-EKG/logs/phaseB_dump.log'` 定位，修好后回到 Step 1。
+- **`DONE rc=<非0>`** → dump 跑挂了，读 `ssh gpu-4090 'tail -40 /data/TJK/ekg/logs/phaseB_dump.log'` 定位，修好后回到 Step 1。
 - **`TIMEOUT ...` 或进程已死 / 末行还是 `WAIT`** → 待机没抢到卡。看 `--smi--`：**有空卡**（某卡 `used≤2500 且 util≤20`，跳过 card3）就走 **Step 1** 手动跑；**仍全占**就重起待机脚本
-  `ssh gpu-4090 'bash -lc "cd /data/TJK/Fin-EKG && nohup bash runs/phaseB_dump_wait.sh >/dev/null 2>&1 &"'` 然后按 §GPU 纪律等卡、别硬塞。
+  `ssh gpu-4090 'bash -lc "cd /data/TJK/ekg && nohup bash runs/phaseB_dump_wait.sh >/dev/null 2>&1 &"'` 然后按 §GPU 纪律等卡、别硬塞。
 
 ### 1) 产 dump（服务器 GPU，有空卡时；`<card>` 选 1 优先，跳 3）
 
 ```bash
-ssh gpu-4090 'bash -lc "cd /data/TJK/Fin-EKG && CUDA_VISIBLE_DEVICES=<card> \
+ssh gpu-4090 'bash -lc "cd /data/TJK/ekg && CUDA_VISIBLE_DEVICES=<card> \
   /home/TJK/.local/bin/uv run python -u scripts/evaluate_relations.py \
   --config configs/relations/supervised_dump.yaml \
   --dump-predictions runs/relations/supervised_dump.jsonl \
@@ -57,10 +57,10 @@ ssh gpu-4090 'bash -lc "cd /data/TJK/Fin-EKG && CUDA_VISIBLE_DEVICES=<card> \
 ### 2) scp dump 回本地 + 核对
 
 ```bash
-scp gpu-4090:/data/TJK/Fin-EKG/runs/relations/supervised_dump.jsonl runs/relations/
-scp gpu-4090:/data/TJK/Fin-EKG/runs/relations/supervised_dump_metrics.json runs/relations/
+scp gpu-4090:/data/TJK/ekg/runs/relations/supervised_dump.jsonl runs/relations/
+scp gpu-4090:/data/TJK/ekg/runs/relations/supervised_dump_metrics.json runs/relations/
 # sha256 双端核：
-ssh gpu-4090 'sha256sum /data/TJK/Fin-EKG/runs/relations/supervised_dump.jsonl' ; \
+ssh gpu-4090 'sha256sum /data/TJK/ekg/runs/relations/supervised_dump.jsonl' ; \
   sha256sum runs/relations/supervised_dump.jsonl
 ```
 
@@ -103,16 +103,16 @@ uv run python scripts/consistency_repair_report.py \
 - [ ] `runs/relations/supervised_dump.jsonl` 生成（710 篇量级）、sha256 双端一致。
 - [ ] `runs/relations/consistency_repair_supervised.json` 产出，三档轨迹齐（consistency/admission/reconstruction + tau + repair_trace）。
 - [ ] `docs/TODO.md` + `docs/EXPERIMENTS.md`「Phase B 实施」段真实数字**替换** PENDING（升降都如实）。
-- [ ] 本地 `uv run pytest && uv run ruff check src tests scripts && uv run finekg-smoke` 仍全绿（只增不改）。
+- [ ] 本地 `uv run pytest && uv run ruff check src tests scripts && uv run ekg-smoke` 仍全绿（只增不改）。
 - [ ] commit + push `origin/main`；dump/产物未进 git。
 
 ## 交付物地图（W1–W4 已落地，供排查）
 
 | 文件 | 角色 |
 |---|---|
-| `src/finekg/relations/consistency/__init__.py` | W1 `RepairEdit`/`RepairTrace`/`solve_with_trace`（`solve()` 逐字节不变=测试锁） |
-| `src/finekg/relations/admission.py` | W2 `stratified_admission_report`（边际/分族/doc-macro FNR + 准入集大小） |
-| `src/finekg/succession/reconstruction.py` | W3 `reconstruction_report`/`ecg_reachable_flags`（R1 可达=CS-CRP 桥, R2 保真） |
+| `src/ekg/relations/consistency/__init__.py` | W1 `RepairEdit`/`RepairTrace`/`solve_with_trace`（`solve()` 逐字节不变=测试锁） |
+| `src/ekg/relations/admission.py` | W2 `stratified_admission_report`（边际/分族/doc-macro FNR + 准入集大小） |
+| `src/ekg/succession/reconstruction.py` | W3 `reconstruction_report`/`ecg_reachable_flags`（R1 可达=CS-CRP 桥, R2 保真） |
 | `scripts/consistency_repair_report.py` | W4 `analyze()` 离线编排 + CLI |
 | `configs/relations/supervised_dump.yaml` | W4 原始边 dump producer（supervised+identity+无准入） |
 | `tests/{relations/test_consistency_repair,relations/test_admission,succession/test_reconstruction,scripts/test_consistency_repair_report}.py` | W1–W4 测试 |

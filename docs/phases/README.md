@@ -1,4 +1,4 @@
-# Fin-EKG v4 · 阶段化执行手册（单会话自包含 phase）
+# EKG v4 · 阶段化执行手册（单会话自包含 phase）
 
 > 把批准的 v4 四章计划拆成**互相隔离、单个 Claude Code / Codex 会话可完成**的 phase，避免长会话上下文互相污染。
 > 权威设计见 [`../SPEC.md`](../SPEC.md)（§1 四章 + §5 防审稿创新点）与批准计划稿；实时状态见 [`../TODO.md`](../TODO.md)。
@@ -21,7 +21,7 @@
 ## 如何在新会话跑一个 phase
 
 **Claude Code**：进仓库 → `/clear` → 输入：
-> 读 `docs/phases/PHASE_X_*.md` 并执行。遵守 `CLAUDE.md` 硬约束与 `docs/SPEC.md` 设计。走 plan 模式先规划，能 TDD 就 TDD。完成后按该文件「验收标准」逐条自检，跑 `uv run pytest && uv run ruff check src tests scripts && uv run finekg-smoke`，把结果写进 `docs/TODO.md`。
+> 读 `docs/phases/PHASE_X_*.md` 并执行。遵守 `CLAUDE.md` 硬约束与 `docs/SPEC.md` 设计。走 plan 模式先规划，能 TDD 就 TDD。完成后按该文件「验收标准」逐条自检，跑 `uv run pytest && uv run ruff check src tests scripts && uv run ekg-smoke`，把结果写进 `docs/TODO.md`。
 
 **Codex**：仓库根有 `AGENTS.md`（与 `CLAUDE.md` 同步）→ 让 Codex 读 `docs/phases/PHASE_X_*.md`，用其 Goal/Context/Constraints/Done-when 执行，跑校验命令验收。
 
@@ -39,7 +39,6 @@ P0 主数据 ✅ ───────────────────┐
               │                                     ▼
               └──────────────▶ [D] Ch3 事实性+净化 ─▶ [E] Ch4 闭环+误差传播 ─▶ [F] 端到端预算
                                                          │
-                                                         ├─▶ [G] 金融应用层
                                                          └─▶ [H] 稳健化(多种子+消融+新颖性扫) ─▶ [I] 写作
 ```
 
@@ -54,7 +53,6 @@ P0 主数据 ✅ ───────────────────┐
 | **D** | Ch3 | 构建图上事实性检测 + 事实性驱动图净化 | macro-F1 ≥47.6、预测图掉点量化、净化下游增益 | P0(+B) | 轻 |
 | **E** | Ch4 | 下游门控闭环修复 + 三图误差传播（headline） | repaired>predicted、误差传播曲线、下游门控接受 | A·B·C·D | 重 |
 | **F** | 跨章 | 端到端误差预算（union bound+可达性，标注前提） | 端到端界 + 分层 FNR、naive vs 预算对照 | B·C·D·E | 轻 |
-| **G** | 应用 | 金融构建→预测可迁移（CCKS-FinCausal + SARGE） | 金融案例、可迁移性 | A·B | 中 |
 | **H** | 全篇 | 多种子 13/17/42 + 消融补齐 + 投稿前新颖性扫 | 主表 mean±std、Ch2 改名定稿 | A–F | 重 |
 | **I** | — | 论文写作（非代码 phase） | 初稿 + 终辩 | 全部 | — |
 

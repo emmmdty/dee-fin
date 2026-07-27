@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from finekg.core.eval import relation_prf
-from finekg.core.schema import RelationType
-from finekg.relations.data import load_ccks_causal, load_maven_ere
+from ekg.core.eval import relation_prf
+from ekg.core.schema import RelationType
+from ekg.relations.data import load_ccks_causal, load_maven_ere
 
 
 def test_load_maven_ere_fixture(fixtures_dir) -> None:

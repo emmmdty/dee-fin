@@ -12,8 +12,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from finekg.core.schema import EventNode, EvidenceSpan, RelationEdge, RelationType
-from finekg.relations.data.maven_ere import RelationDocument
+from ekg.core.schema import EventNode, EvidenceSpan, RelationEdge, RelationType
+from ekg.relations.data.maven_ere import RelationDocument
 
 _REPO = Path(__file__).resolve().parents[2]
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Selective conformal head over CGEP (M3a): calibrated prediction sets + curve.
+"""Selective conformal head over CGEP: calibrated prediction sets + curve.
 
 The reasoning-stage selective predictor of CS-CRP (SPEC 4.3). Fits a predictor on
 train, calibrates a conformal rank threshold on a held-out slice of valid, and
@@ -21,14 +21,14 @@ import math
 import random
 from pathlib import Path
 
-from finekg.succession.data.cgep import CgepInstance, build_cgep, iter_documents
-from finekg.succession.linearize import EDGE_BUDGET
-from finekg.succession.predictor import successor_predictors
-from finekg.succession.selective import DEFAULT_ALPHAS, cgep_gold_ranks, selective_report
+from ekg.succession.data.cgep import CgepInstance, build_cgep, iter_documents
+from ekg.succession.linearize import EDGE_BUDGET
+from ekg.succession.predictor import successor_predictors
+from ekg.succession.selective import DEFAULT_ALPHAS, cgep_gold_ranks, selective_report
 
 
 def _dump_ranks(path: Path, predictor: str, cal: list[float], test: list[float]) -> None:
-    """Persist gold ranks (inf -> null) for the M3b cross-stage sweep."""
+    """Persist gold ranks (inf -> null) for the cross-stage sweep."""
     def jsonable(xs: list[float]) -> list[float | None]:
         return [None if r == math.inf else r for r in xs]
 
@@ -60,8 +60,8 @@ def _build(args, train: list[CgepInstance], valid: list[CgepInstance]):
         return successor_predictors.create(args.predictor)
     if not args.model_path:
         raise SystemExit("--predictor sedgpl needs --model-path")
-    import finekg.succession.sedgpl  # noqa: F401 - registers "sedgpl"
-    from finekg.succession.linearize import EventVocabulary
+    import ekg.succession.sedgpl  # noqa: F401 - registers "sedgpl"
+    from ekg.succession.linearize import EventVocabulary
 
     return successor_predictors.create(
         "sedgpl", model_path=args.model_path,
@@ -86,7 +86,7 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=209)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--dump-ranks", type=Path,
-                        help="dump cal/test gold ranks for the M3b cross-stage sweep")
+                        help="dump cal/test gold ranks for the cross-stage sweep")
     # sedgpl only
     parser.add_argument("--model-path", help="roberta-base checkpoint, for sedgpl")
     parser.add_argument("--epochs", type=int, default=10)

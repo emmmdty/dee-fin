@@ -5,8 +5,7 @@
 ## Goal（完成目标）
 构建**去重、可溯源、身份统一**的 canonical event nodes：事件检测 → **相似事件难例判别（hard-negative）** →
 **不确定性感知规范化聚类** → **簇级证据/置信聚合** → 挂论元（MAVEN-Arg）。产出的 `node_confidence` 是**下游可消费的
-校准置信**（喂 Ch4 误差预算）——这是与普通事件共指的关键差异。SARGE 只作 Phase G 金融迁移，
-不等同于本章已完成。
+校准置信**（喂 Ch4 误差预算）——这是与普通事件共指的关键差异。
 
 ## 依赖 / 产物
 - 前置：P0（`data/raw/maven_arg/` 已下、`maven_ere` coref、MAVEN 检测均在库）。

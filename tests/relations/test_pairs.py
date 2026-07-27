@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.core.schema import EventNode, EvidenceSpan, RelationEdge, RelationType
-from finekg.relations.data.maven_ere import RelationDocument
-from finekg.relations.pairs import (
+from ekg.core.schema import EventNode, EvidenceSpan, RelationEdge, RelationType
+from ekg.relations.data.maven_ere import RelationDocument
+from ekg.relations.pairs import (
     candidate_pairs,
     edges_to_pair_labels,
     mention_order,

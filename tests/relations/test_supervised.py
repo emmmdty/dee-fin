@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-import finekg.relations.extractor.supervised as sup
-from finekg.core.schema import EventNode, EvidenceSpan
-from finekg.relations.extractor import relation_extractors
+import ekg.relations.extractor.supervised as sup
+from ekg.core.schema import EventNode, EvidenceSpan
+from ekg.relations.extractor import relation_extractors
 
 
 def _node(eid: str, sent: int, start: int, etype: str = "Attack") -> EventNode:
@@ -123,7 +123,7 @@ def test_extract_no_prediction_yields_no_edge(monkeypatch):
 
 def test_pair_classifier_and_features_shapes():
     torch = pytest.importorskip("torch")
-    from finekg.relations.extractor.supervised import PairClassifier, _pair_features
+    from ekg.relations.extractor.supervised import PairClassifier, _pair_features
 
     h = torch.zeros(3, 8)
     feats = _pair_features(h, h)
@@ -143,8 +143,8 @@ def test_pair_classifier_and_features_shapes():
 def test_supervised_config_wires_the_pipeline_on_cpu():
     # Loads the real config: checks its syntax, that the pipeline selects the
     # supervised extractor, and that construction needs no torch (model is lazy).
-    from finekg.core.config import load_config
-    from finekg.relations import RelationPipeline, RelationPipelineConfig
+    from ekg.core.config import load_config
+    from ekg.relations import RelationPipeline, RelationPipelineConfig
 
     repo = Path(__file__).resolve().parents[2]
     config = RelationPipelineConfig.from_dict(

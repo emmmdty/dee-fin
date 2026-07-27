@@ -6,8 +6,8 @@ downsamples the dominant NONE class, and trains a RoBERTa encoder + per-family l
 heads with class-weighted cross-entropy. Saves encoder, tokenizer and heads to
 `--output`, which `configs/relations/supervised.yaml` then loads.
 
-This is the v4 Phase A *discriminative* trainer — not `train_relation_extractor.py`,
-which is the retained v3 generative LoRA baseline.
+This is the *discriminative* trainer — not `train_relation_extractor.py`, which is
+the retained generative LoRA baseline.
 
 Data preparation (`build_training_rows` / `downsample_negatives` / `class_weights`) is
 pure Python and unit-tested on CPU; training needs the `llm` extra + a GPU:
@@ -26,9 +26,9 @@ import argparse
 import random
 from pathlib import Path
 
-from finekg.relations.data.maven_ere import load_maven_ere
-from finekg.relations.extractor.supervised import FAMILY_SUBTYPES
-from finekg.relations.pairs import PairExample, pair_examples
+from ekg.relations.data.maven_ere import load_maven_ere
+from ekg.relations.extractor.supervised import FAMILY_SUBTYPES
+from ekg.relations.pairs import PairExample, pair_examples
 
 
 def build_training_rows(docs, max_distance: int | None = None) -> list[PairExample]:
@@ -143,7 +143,7 @@ def main() -> int:
     import torch.nn.functional as F
     from transformers import AutoModel, AutoTokenizer
 
-    from finekg.relations.extractor.supervised import (
+    from ekg.relations.extractor.supervised import (
         PairClassifier,
         _pair_features,
         encode_trigger_reps,

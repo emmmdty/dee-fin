@@ -1,4 +1,4 @@
-# Fin-EKG 项目总纲（SPEC）
+# EKG 项目总纲（SPEC）
 
 > **单一权威的开发驱动文档。** 讲清「做什么、怎么组织、当前机制、定位约束、实验设计」。
 > 动态内容分流：**当前在做/待办/止损条件** 见 [`TODO.md`](TODO.md)；**工程坑** 见
@@ -16,10 +16,10 @@
 
 | 章 | 可信维度 | 任务 | 主数据（公开 gold） | 代码域 |
 |---|---|---|---|---|
-| Ch1 | 身份可信 | 证据+不确定性的规范事件节点（带论元） | MAVEN 检测 + MAVEN-Arg + ERE-coref | `finekg.core`(schema/eval) + 新建规范化 |
-| Ch2 | 结构可信 | 风险受控全局一致多关系边 + 可追溯修复 | MAVEN-ERE | `finekg.relations` |
+| Ch1 | 身份可信 | 证据+不确定性的规范事件节点（带论元） | MAVEN 检测 + MAVEN-Arg + ERE-coref | `ekg.core`(schema/eval) + 新建规范化 |
+| Ch2 | 结构可信 | 风险受控全局一致多关系边 + 可追溯修复 | MAVEN-ERE | `ekg.relations` |
 | Ch3 | 事实可信 | **构建图上**事实性检测 + 事实性驱动图净化 | MAVEN-FACT | 新建 factuality + `core/calibration` |
-| **Ch4** | **传播可信/可用（headline）** | **下游门控闭环修复 + 构建误差传播 + 可靠后继预测** | CGEP-MAVEN / ESC，基座 SeDGPL | `finekg.succession` + `agents` |
+| **Ch4** | **传播可信/可用（headline）** | **下游门控闭环修复 + 构建误差传播 + 可靠后继预测** | CGEP-MAVEN / ESC，基座 SeDGPL | `ekg.succession` + `agents` |
 
 **全篇统一创新（headline = Ch4）** = **面向下游的构建误差预算 + 下游验证的闭环修复**：每阶段量化校准
 不确定性 → union bound + 可达性合成端到端误差预算（`core/calibration/propagation.py`）→ 修复控制器
@@ -29,8 +29,9 @@
 `evidence_chain`。验证器跨阶段「货币」三身份：**门控 · 奖励 · 风险控制器（带有限样本保证）**。
 
 > ⚠️ 旧「实体中心中文金融事件图谱 + TKG 外推」（re_gcn/path_rl/hybrid）**已从主干移除**（见 git tag
-> `frozen-tkg-line`，消融时从 tag 取）；Astock 与 entity-mode 是已证死路。**金融作应用验证层**
-> （CCKS-FinCausal + SARGE），非整章。
+> `frozen-tkg-line`，消融时从 tag 取）；Astock 与 entity-mode 是已证死路。**金融应用层
+> （Phase G / SARGE）已于 2026-07-27 整体移出主干**——v4 四章无一依赖，结果快照见
+> `archive/SARGE_RESULTS_SNAPSHOT.md`。
 > ⚠️ 数据看**公开可下载性**：MAVEN 四件套（检测/Arg/ERE/FACT）全 THU-KEG 公开 gold、同 4480 文档、
 > test 隐藏走 CodaLab；截至 2026-07-22，MAVEN-ERE / Arg / FACT 的公开 train/valid 已在 WSL 与 4090
 > 就位。扩展数据的 raw/processed 边界以 `DATASET_SURVEY.md` 为准。
@@ -39,16 +40,16 @@
 
 三条机制保证「把某阶段从 baseline 升到 full method 只是**加一个实现**」：
 
-1. **冻结的跨阶段契约**（`finekg.core.schema`）：v4 主链类型
+1. **冻结的跨阶段契约**（`ekg.core.schema`）：v4 主链类型
    `EventNode → RelationEdge / EventGraph → CgepInstance → Prediction`；`TemporalQuad / ForecastQuery`
    仅为旧 TKG 兼容类型，不再驱动主线。
    规则：**只加可选字段，绝不复用/改义既有字段**。`EventNode` schema 零新增字段（扩展走
    `metadata`）；`CgepNode` 是 succession 自己的类型、可加字段。
-2. **插件式 registry**（`finekg.core.registry`）：可换组件各自注册，config 按名选择。加方法 =
+2. **插件式 registry**（`ekg.core.registry`）：可换组件各自注册，config 按名选择。加方法 =
    `@registry.register("name")` + 写实现，pipeline/config schema/调用方零改动。
 3. **CPU/GPU 惰性分层**：`core` + 启发式 baseline 无 torch，可在纯 CPU 机导入整包；神经代码
    （LLM/PyG/SeDGPL）**lazy import torch**，只有实例化才需 `llm`/`gnn` extra。故本地
-   `uv run pytest` / `finekg-smoke` 全绿，GPU 路径在服务器跑。GPU 组件必须配 CPU 缓存回放。
+   `uv run pytest` / `ekg-smoke` 全绿，GPU 路径在服务器跑。GPU 组件必须配 CPU 缓存回放。
 
 **不可违反的纪律**：包/函数名不得含 `ch1/2/3`；新组件走 registry + lazy import；报告结果如实
 （数字降就说降；观察失败如 ssh/工具，不得伪装成被观察对象的结论）。不可改的测试锁见
@@ -57,8 +58,8 @@
 ## 3. 代码地图（chapters ↔ code）
 
 ```
-src/finekg/
-├── core/          冻结契约: schema, io(+SARGE adapter), graph, registry, config,
+src/ekg/
+├── core/          冻结契约: schema, io, graph, registry, config,
 │                  calibration/(split·aci·weighted·crc·propagation), eval/(faithfulness·指标)
 ├── succession/    ★Ch4 CGEP 后继事件预测(SeDGPL 基座 + selective/structure/cross_stage)
 │   ├── data/cgep.py     从 MAVEN-ERE 重建 CGEP 实例(ECG 抽取/anchor 选取/候选采样)
@@ -134,7 +135,7 @@ cs_crp 守覆盖到预留档(loss≤0.1)、集恒~270；**cs_cond 同覆盖下�
 强抽取器诱导真实损失待 Phase A/B 完成后补齐。**这是继 M1(MRR 噪声级) 后第二个经验墙 → 价值靠方法讲干净、非端到端数字。**
 
 ### 4.4 验证器即奖励（RL-reward，**降级为机制之一/消融**）
-`finekg/rl` + `relations/rl`（GRPO-RLVR：format+grounding+consistency+F1）。path RL（旧 TKG 线）已随
+`ekg/rl` + `relations/rl`（GRPO-RLVR：format+grounding+consistency+F1）。path RL（旧 TKG 线）已随
 主干移除（tag `frozen-tkg-line`）。**定位收缩**：新颖性复核表明「结构作 RLVR 奖励」是红海（见 §5），故 RL-reward
 不作头条卖点，仅作机制/消融。历史全设计见归档 `docs/archive/RL_DESIGN.md`。
 

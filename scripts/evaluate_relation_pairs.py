@@ -11,10 +11,10 @@ and micro pair P/R/F1, hallucination counts, the optional windowed setting
 (``--window-ceilings``), corpus-aggregated.
 
     uv run python scripts/evaluate_relation_pairs.py \
-        --predictions runs/pred_phase2.jsonl \
+        --predictions runs/relations/valid_predictions.jsonl \
         --gold-path data/processed/maven_ere/valid.jsonl \
         --window-ceilings 8 16 24 \
-        --output runs/pair_eval_phase2.json
+        --output runs/relations/pair_eval.json
 """
 
 from __future__ import annotations
@@ -23,10 +23,10 @@ import argparse
 import json
 from pathlib import Path
 
-from finekg.core.eval.relation import PRF
-from finekg.core.schema import RelationEdge
-from finekg.relations.data.maven_ere import load_maven_ere
-from finekg.relations.pairs import pair_prf, window_recall_ceiling
+from ekg.core.eval.relation import PRF
+from ekg.core.schema import RelationEdge
+from ekg.relations.data.maven_ere import load_maven_ere
+from ekg.relations.pairs import pair_prf, window_recall_ceiling
 
 _FAMILY_KEYS = ("coreference", "temporal", "causal", "subevent", "micro")
 _DIAG_KEYS = (

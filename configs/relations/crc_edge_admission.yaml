@@ -3,7 +3,7 @@
 # confidence threshold so the gold false-negative rate is bounded at `alpha`
 # (the graph provably retains >= 1 - alpha of true relations). The `admission`
 # section is calibrated on the validation split and applied to test by
-# evaluate_relations; `relations.admission` itself maps to `finekg.relations.
+# evaluate_relations; `relations.admission` itself maps to `ekg.relations.
 # admission.edge_admission`. CPU baseline; swap extractor to `llm` on the server.
 relations:
   extractor: heuristic

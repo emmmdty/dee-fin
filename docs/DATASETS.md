@@ -1,4 +1,4 @@
-# Fin-EKG v4 数据集与切分
+# EKG v4 数据集与切分
 
 > 数据文件不提交 Git。`data/raw/` 保存公开 release，`data/processed/` 保存项目口径输出，
 > `data/fixtures/` 只放 CPU 测试样例。文件级来源与 SHA-256 见已跟踪的
@@ -35,13 +35,14 @@ MAVEN-ERE、MAVEN-Arg 和 MAVEN-FACT 的 train/valid doc-id 集合对齐，支�
 “raw 已下载”不等于“可直接训练”。只有 `data/processed/<dataset>/manifest.json` 存在且相应 loader/
 评测口径可用时，才可写成项目已预处理。
 
-## 金融应用与旧线数据
+## 旧线与冻结数据（均不进入 v4 主表）
+
+> 金融应用层（Phase G / SARGE）已于 2026-07-27 移出主干，下列数据仍在磁盘但**无 v4 消费方**。
 
 | 数据集 | 当前定位 |
 |---|---|
-| CCKS-2021 FinCausal | Phase G 中文金融因果迁移 |
-| SARGE/ChFinAnn/DuEE-Fin | Phase G 金融事件节点来源与历史成果 |
-| Astock、CMIN-CN | 金融案例/旧下游数据，不作为 v4 主章基准 |
+| CCKS-2021 FinCausal | 旧中文金融因果数据；Phase G 移除后无现役用途 |
+| Astock、CMIN-CN、event_graph_zh | 已证死路（entity-mode 闭环）；**preparer 已于 2026-07-27 删除**，raw 数据仍在磁盘 |
 | ICEWS14/18/05-15、FinDKG | 冻结 TKG 线兼容数据，不进入 v4 主表 |
 
 ## 切分硬约束

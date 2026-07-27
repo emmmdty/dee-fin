@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from finekg.succession.data.cgep import CgepInstance, CgepNode
-from finekg.succession.data.esc import load_cgep_esc
-from finekg.succession.linearize import (
+from ekg.succession.data.cgep import CgepInstance, CgepNode
+from ekg.succession.data.esc import load_cgep_esc
+from ekg.succession.linearize import (
     EDGE_BUDGET,
     UNREACHABLE_DISTANCE,
     EventVocabulary,

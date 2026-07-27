@@ -1,9 +1,9 @@
 <meta charset="utf-8">
-<title>Fin-EKG 课题总览 · 可信事件图谱的构建与下游应用</title>
+<title>EKG 课题总览 · 可信事件图谱的构建与下游应用</title>
 
 <style>
 /* ============================================================
-   Fin-EKG OVERVIEW · 设计令牌
+   EKG OVERVIEW · 设计令牌
    色阶含义：四章冷→暖 = 构建误差沿管线累积，Ch4 是热点(headline)
    ============================================================ */
 :root{
@@ -313,7 +313,7 @@ svg.dg text.m{font-family:var(--f-mono); font-size:10.5px; fill:var(--ink-3)}
 <div class="wrap">
 
 <nav class="rail" aria-label="目录">
-  <span class="brand">Fin-EKG</span>
+  <span class="brand">EKG</span>
   <span class="sub">课题总览 · v4</span>
   <ol>
     <li><a href="#what"><span class="n">01</span>这到底在做什么</a></li>
@@ -500,7 +500,7 @@ svg.dg text.m{font-family:var(--f-mono); font-size:10.5px; fill:var(--ink-3)}
   <div class="col">
     <span class="eyebrow">03 / 端到端</span>
     <h2>总管线：数据是怎么流的</h2>
-    <p>下面这条链是全篇的主干。<strong>箭头上标的是真正在函数之间传递的数据类型和真实数量</strong>——这些类型定义在 <code>src/finekg/core/schema.py</code>，是冻结契约，只许加可选字段，不许改义。</p>
+    <p>下面这条链是全篇的主干。<strong>箭头上标的是真正在函数之间传递的数据类型和真实数量</strong>——这些类型定义在 <code>src/ekg/core/schema.py</code>，是冻结契约，只许加可选字段，不许改义。</p>
   </div>
 
   <div class="band">
@@ -1232,7 +1232,7 @@ svg.dg text.m{font-family:var(--f-mono); font-size:10.5px; fill:var(--ink-3)}
         <tr><td><span class="st st-half"></span></td><td><code>rl/</code> · <code>relations/rl/</code></td><td>消融</td><td>GRPO-RLVR 已实现，按新颖性复核<b>降级为机制/消融</b>，不作卖点</td></tr>
         <tr><td><span class="st st-todo"></span></td><td>Ch1 节点规范化模块</td><td>Ch1</td><td>不存在。Phase C 的产物（含 <code>relations/data/maven_arg.py</code>）</td></tr>
         <tr><td><span class="st st-todo"></span></td><td>Ch3 事实性模块</td><td>Ch3</td><td>不存在。Phase D 的产物（含 <code>relations/data/maven_fact.py</code>）</td></tr>
-        <tr><td><span class="st st-stale"></span></td><td><code>src/finekg/forecasting/</code></td><td>旧线</td><td><b>旧 TKG 线</b>：源码早已随 tag <code>frozen-tkg-line</code> 移出主干；仅剩的 <code>__pycache__</code> 空壳目录<b>已清理</b>（复现旧实验从 tag 取）</td></tr>
+        <tr><td><span class="st st-stale"></span></td><td><code>src/ekg/forecasting/</code></td><td>旧线</td><td><b>旧 TKG 线</b>：源码早已随 tag <code>frozen-tkg-line</code> 移出主干；仅剩的 <code>__pycache__</code> 空壳目录<b>已清理</b>（复现旧实验从 tag 取）</td></tr>
         <tr><td><span class="st st-stale"></span></td><td><code>runs/astock_*</code></td><td>旧线</td><td><b>旧金融实体线产物</b>：Astock 与 entity-mode 已证死路；这批约 60MB 的 json/jsonl <b>已清理</b>（<code>runs/</code> 61MB → 1.1MB）</td></tr>
       </tbody>
     </table>
@@ -1260,7 +1260,7 @@ svg.dg text.m{font-family:var(--f-mono); font-size:10.5px; fill:var(--ink-3)}
     <div class="panel">
       <pre style="margin:0; overflow-x:auto; font-family:var(--f-mono); font-size:13px; line-height:1.8"><code style="background:none;border:0;padding:0">uv run pytest                          <span style="color:var(--ink-3)"># 全绿，只增不改（当前 239 passed / 11 skipped）</span>
 uv run ruff check src tests scripts    <span style="color:var(--ink-3)"># 0 error，≤100 列</span>
-uv run finekg-smoke                    <span style="color:var(--ink-3)"># CPU 端到端冒烟</span></code></pre>
+uv run ekg-smoke                    <span style="color:var(--ink-3)"># CPU 端到端冒烟</span></code></pre>
     </div>
   </div>
 </section>
@@ -1344,7 +1344,6 @@ uv run finekg-smoke                    <span style="color:var(--ink-3)"># CPU �
         <tr><td class="num">D</td><td>Ch3</td><td>事实性检测 + 图净化</td><td class="num">macro-F1 ≥47.6 · 掉点量化 · 净化增益</td><td><span class="st st-todo"></span>未开始</td><td>轻</td></tr>
         <tr><td class="num"><b>E</b></td><td>Ch4</td><td>下游门控闭环 + 三图误差传播</td><td>repaired &gt; predicted · 误差传播曲线</td><td><span class="st st-half"></span>基座有，控制器未做</td><td>重</td></tr>
         <tr><td class="num">F</td><td>跨章</td><td>端到端误差预算</td><td>显式前提下的界 · naive 对照</td><td><span class="st st-half"></span>原语有</td><td>轻</td></tr>
-        <tr><td class="num">G</td><td>应用</td><td>金融迁移（CCKS-FinCausal + SARGE）</td><td>金融构建→预测案例</td><td><span class="st st-half"></span>adapter 有</td><td>中</td></tr>
         <tr><td class="num">H</td><td>全篇</td><td>多种子 13/17/42 + 消融 + 新颖性扫</td><td>主表 mean±std · 改名定稿</td><td><span class="st st-todo"></span>等 A–F</td><td>重</td></tr>
         <tr><td class="num">I</td><td>—</td><td>论文写作</td><td>初稿 + 终辩材料</td><td><span class="st st-todo"></span>等主实验</td><td>—</td></tr>
       </tbody>
@@ -1410,7 +1409,7 @@ uv run finekg-smoke                    <span style="color:var(--ink-3)"># CPU �
     <div class="block" style="border-left-color:var(--c2)">
       <div class="hd"><span class="m" style="color:var(--c2)">口径</span>这份文档的数字来源</div>
       <p class="note" style="margin:0">全部取自 <code>docs/SPEC.md</code>（设计总纲）与 <code>docs/TODO.md</code>（实时状态，更新于 2026-07-22），
-      代码现状为直接检查 <code>src/finekg/</code> 得到。<strong>SPEC 与 TODO 冲突时以 SPEC 为准；本页与它们冲突时，以它们为准。</strong></p>
+      代码现状为直接检查 <code>src/ekg/</code> 得到。<strong>SPEC 与 TODO 冲突时以 SPEC 为准；本页与它们冲突时，以它们为准。</strong></p>
     </div>
   </div>
 </section>

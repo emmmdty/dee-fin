@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-from finekg.relations.data.maven_ere import load_maven_ere
+from ekg.relations.data.maven_ere import load_maven_ere
 
 _REPO = Path(__file__).resolve().parents[2]
 _FIXTURE = _REPO / "data" / "fixtures" / "maven_ere" / "sample.jsonl"

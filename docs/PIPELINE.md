@@ -1,4 +1,4 @@
-# Fin-EKG · 三端协作流水线（PIPELINE）
+# EKG · 三端协作流水线（PIPELINE）
 
 > **本地开发 → GitHub 中转 → 服务器 GPU 执行 → 回传结果** 的标准闭环。一句话铁律：
 > **代码走 git，数据 / 产物 / 大文件走 scp。** 设计以 [`SPEC.md`](SPEC.md) 为准；服务器内运维细节见
@@ -8,14 +8,14 @@
 
 | 端 | 位置 | 职责 | git 角色 |
 |---|---|---|---|
-| **本地** | WSL `/home/tjk/myProjects/masterProjects/Fin-EKG` | 编辑代码 + CPU 校验（pytest / ruff / smoke） | git 仓库，**唯一编辑端** |
+| **本地** | WSL `/home/tjk/myProjects/masterProjects/ekg` | 编辑代码 + CPU 校验（pytest / ruff / smoke） | git 仓库，**唯一编辑端** |
 | **GitHub** | `github.com/emmmdty/dee-fin`（**PUBLIC**，分支 `main`） | 代码唯一中转中心（single source of truth） | remote `origin` |
-| **服务器** | `gpu-4090:/data/TJK/Fin-EKG` | GPU 训练 / 推理执行 | git 仓库，**只拉取不编辑** |
+| **服务器** | `gpu-4090:/data/TJK/ekg` | GPU 训练 / 推理执行 | git 仓库，**只拉取不编辑** |
 
 ## 2. 什么走 git，什么不走（铁律）
 
 - ✅ **走 git（三端必一致）**：`src/` `tests/` `scripts/` `configs/` `docs/` `pyproject.toml`
-  `uv.lock` `external/sarge/` `data/fixtures/` `data/raw/DATA_PROVENANCE.md`
+  `uv.lock` `data/fixtures/` `data/raw/DATA_PROVENANCE.md`
 - ❌ **不走 git（`.gitignore` 排除，各端本地 / scp）**：
   - `data/raw/*` 数据 → 服务器已就位或单独 scp
   - `runs/` 实验产物、`logs/` 训练日志 → 服务器生成，回传走 scp
@@ -25,7 +25,7 @@
 
 ## 3. 远端 git 状态（已就位 · 2026-07-23 核实）
 
-远端 `/data/TJK/Fin-EKG` **已是 git 仓库**，`main` 跟踪 `origin/main`、对齐 `f87175d`，tracked 工作区干净；
+远端 `/data/TJK/ekg` **已是 git 仓库**，`main` 跟踪 `origin/main`、对齐 `f87175d`，tracked 工作区干净；
 `runs/ nvmlshim/ data/raw/` 等 remote-only 产物在原位。**网络可直达 GitHub**（`git fetch` 成功，PUBLIC 免 token）。
 
 - 首次核实时远端在 `master@06e2d1f` 且有 32 个 tracked 改动（历史 scp 遗留、未 commit）——已 `git stash` 保全为
@@ -40,7 +40,7 @@
 
 1. **本地开发 → 校验全绿**
    ```bash
-   uv run pytest && uv run ruff check src tests scripts && uv run finekg-smoke
+   uv run pytest && uv run ruff check src tests scripts && uv run ekg-smoke
    ```
 2. **本地 → GitHub**
    ```bash
@@ -49,21 +49,21 @@
 3. **服务器拉取**（ssh 恢复后）
    ```bash
    ssh gpu-4090
-   cd /data/TJK/Fin-EKG && git fetch origin && git reset --hard origin/main
+   cd /data/TJK/ekg && git fetch origin && git reset --hard origin/main
    ```
    - 数据首次 / 更新（不在 git）：本地
-     `scp -r data/raw/<x> gpu-4090:/data/TJK/Fin-EKG/data/raw/`，两端 `sha256sum` 核对。
+     `scp -r data/raw/<x> gpu-4090:/data/TJK/ekg/data/raw/`，两端 `sha256sum` 核对。
 4. **服务器 GPU 执行**（选卡前 `nvidia-smi`，优先 card 1；长跑用 `screen -dmS` / `nohup` + `python -u`）
    ```bash
-   cd /data/TJK/Fin-EKG
+   cd /data/TJK/ekg
    CUDA_VISIBLE_DEVICES=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
      /home/TJK/.local/bin/uv run --extra llm python -u scripts/<x>.py ... \
      > logs/<x>.log 2>&1 &
    ```
 5. **出问题 → 回传本地**（日志 + 结果，在本地执行）
    ```bash
-   scp gpu-4090:/data/TJK/Fin-EKG/logs/<x>.log logs/
-   scp gpu-4090:/data/TJK/Fin-EKG/runs/<x>.json runs/
+   scp gpu-4090:/data/TJK/ekg/logs/<x>.log logs/
+   scp gpu-4090:/data/TJK/ekg/runs/<x>.json runs/
    ```
    两端 `sha256sum` 核对；产物落 `runs/`，结论写入 `TODO.md`（如实：降就说降）。
 6. **本地修改 → 回到 step 1**（改代码、push、服务器 pull、再实验）。

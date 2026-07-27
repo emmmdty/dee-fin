@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "finekg"
+name = "ekg"
 version = "0.1.0"
 description = "Verifiable event graph construction and successor-event reasoning (CGEP)"
 readme = "README.md"
@@ -34,7 +34,8 @@ dependencies = [
 
 [project.optional-dependencies]
 # llm = GPU stack for neural relation/succession components (server only, CUDA 12.4).
-# Pinned to the stack already verified by the retained SARGE application component.
+# Pinned to the stack already verified on the 4090 (Phase A supervised extractor,
+# Ch4 SeDGPL). Changing these pins means re-verifying the whole server environment.
 llm = [
     "torch==2.6.0",
     # transformers is capped below 4.54: Qwen3 support lands in 4.51, while trl
@@ -53,7 +54,8 @@ gnn = [
     "torch==2.6.0",
     "torch-geometric>=2.6",
 ]
-# serve = high-throughput inference backend (server only), matching SARGE.
+# serve = high-throughput inference backend (server only). Co-tested with the
+# `llm` pins above; the `rl` extra reuses it for vLLM rollouts.
 serve = [
     "vllm==0.8.5",
 ]
@@ -70,13 +72,10 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.5",
-    # used by docs/midterm/report/build_midterm_report.py (and its test); declared
-    # so an exact `uv sync` keeps the suite self-contained (CPU-only).
-    "python-docx>=1.1",
 ]
 
 [project.scripts]
-finekg-smoke = "finekg.cli:run_smoke"
+ekg-smoke = "ekg.cli:run_smoke"
 
 # ---------------------------------------------------------------------------
 # uv configuration
@@ -103,21 +102,12 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }
-sarge = { workspace = true }
-
-# SARGE is vendored at external/sarge as the Phase G financial application extractor
-# and managed as a uv workspace member. It is NOT the v4 Ch1 implementation or a
-# runtime dependency of finekg; core.io.event_nodes_from_sarge consumes its JSONL output.
-# Install both packages together on the server with, e.g.:
-#   uv sync --all-packages --extra llm --extra gnn
-[tool.uv.workspace]
-members = ["external/sarge"]
 
 # ---------------------------------------------------------------------------
 # tooling
 # ---------------------------------------------------------------------------
 [tool.hatch.build.targets.wheel]
-packages = ["src/finekg"]
+packages = ["src/ekg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -133,7 +123,7 @@ target-version = "py310"
 src = ["src", "tests"]
 extend-exclude = [
     "data/raw",
-    "docs/midterm",
+    "docs/archive",
 ]
 
 [tool.ruff.lint]

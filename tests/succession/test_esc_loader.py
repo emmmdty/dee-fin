@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from finekg.succession.data.esc import (
+from ekg.succession.data.esc import (
     ESC_CANDIDATE_SET_SIZE,
     load_cgep_esc,
     load_npy_object,

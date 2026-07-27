@@ -10,7 +10,7 @@
 
 ## 依赖 / 产物
 - 前置：P0（数据就位，`data/raw/maven_ere/{train,valid}.jsonl` 已在库）。
-- 产出：`src/finekg/relations/extractor/supervised.py`（注册项）+ 测试 + `runs/relations/supervised_*.json`。
+- 产出：`src/ekg/relations/extractor/supervised.py`（注册项）+ 测试 + `runs/relations/supervised_*.json`。
 
 ## Context（复用 / 新建）
 - **复用**：`relations/extractor/heuristic.py`（`@register("heuristic")` 与接口范式）、`relations/extractor/llm.py`
@@ -33,7 +33,7 @@
 - 只在**金标节点**上评测（解耦 Ch1）；候选须**文档级**（非仅相邻句），否则召回天花板低。
 
 ## 验收标准（Done when）
-- [ ] `@register("supervised")` 存在 + 测试；`uv run pytest` 只增不改绿、`ruff` 0、`finekg-smoke` 绿。
+- [ ] `@register("supervised")` 存在 + 测试；`uv run pytest` 只增不改绿、`ruff` 0、`ekg-smoke` 绿。
 - [ ] `evaluate_relations.py --extractor supervised` 输出三类 F1；**causal F1 ≥ ~25（目标 30–37）、subevent ≥ ~20**，
       **如实记录并与 0.4% 对比**（降/未达也照报）。
 - [ ] 结果落 `runs/relations/supervised_*.json` + 写入 `docs/TODO.md`。

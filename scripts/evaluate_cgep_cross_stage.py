@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""M3b controlled cross-stage sweep on CGEP: composed coverage vs reachability loss.
+"""Controlled cross-stage sweep on CGEP: composed coverage vs reachability loss.
 
 Sweeps a controlled reachability loss over real reasoning ranks and reports each
 CS-CRP variant's composed coverage, so the collapse of `naive` conformal and the
@@ -23,7 +23,7 @@ import math
 import random
 from pathlib import Path
 
-from finekg.succession.cross_stage import DEFAULT_LOSSES, cross_stage_sweep
+from ekg.succession.cross_stage import DEFAULT_LOSSES, cross_stage_sweep
 
 _MAVEN = Path("data/processed/maven_ere")
 
@@ -32,9 +32,9 @@ def _ranks_from_predictor(
     name: str, cal_ratio: float, seed: int
 ) -> tuple[list[float], list[float]]:
     """Fit a torch-free baseline on train and read gold ranks on a valid cal/test split."""
-    from finekg.succession.data.cgep import build_cgep, iter_documents
-    from finekg.succession.predictor import successor_predictors
-    from finekg.succession.selective import cgep_gold_ranks
+    from ekg.succession.data.cgep import build_cgep, iter_documents
+    from ekg.succession.predictor import successor_predictors
+    from ekg.succession.selective import cgep_gold_ranks
 
     train, _ = build_cgep(iter_documents([str(_MAVEN / "train.jsonl")]))
     valid, _ = build_cgep(iter_documents([str(_MAVEN / "valid.jsonl")]))

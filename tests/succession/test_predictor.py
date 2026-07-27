@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.succession.data.cgep import CgepInstance, CgepNode
-from finekg.succession.predictor import (
+from ekg.succession.data.cgep import CgepInstance, CgepNode
+from ekg.succession.predictor import (
     FrequencySuccessorPredictor,
     RandomSuccessorPredictor,
     SuccessorPredictor,

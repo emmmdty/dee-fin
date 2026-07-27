@@ -6,10 +6,10 @@ import json
 
 import pytest
 
-from finekg.core.schema import EventNode, RelationEdge, RelationType
-from finekg.relations.data import load_maven_ere
-from finekg.relations.data.maven_ere import RelationDocument
-from finekg.relations.rl.rewards import (
+from ekg.core.schema import EventNode, RelationEdge, RelationType
+from ekg.relations.data import load_maven_ere
+from ekg.relations.data.maven_ere import RelationDocument
+from ekg.relations.rl.rewards import (
     ConsistencyReward,
     FormatReward,
     GroundingReward,

@@ -8,7 +8,7 @@ these pin the semantics without torch.
 
 from __future__ import annotations
 
-from finekg.succession.structure import event_reach_anchor, reaches_anchor
+from ekg.succession.structure import event_reach_anchor, reaches_anchor
 
 
 def test_reaches_anchor_collects_upstream_events_and_the_anchor_itself():

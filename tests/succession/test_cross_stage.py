@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import random
 
-from finekg.succession.cross_stage import cross_stage_sweep, induce_reachability
+from ekg.succession.cross_stage import cross_stage_sweep, induce_reachability
 
 
 def test_induce_reachability_random_hits_the_target_loss():

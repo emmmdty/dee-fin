@@ -1,4 +1,4 @@
-# Fin-EKG 实验协议（EXPERIMENTS）
+# EKG 实验协议（EXPERIMENTS）
 
 > **实验设计的单一权威**：评测协议 + 每章 baseline 矩阵 + 消融矩阵 + 报数规范。
 > Phase A–I **照此跑**；主表/消融/协议声明**遵循已发表论文写法**。设计定义见

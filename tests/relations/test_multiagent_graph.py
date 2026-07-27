@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.agents.protocol import Blackboard, Message
-from finekg.core.eval import consistency_report
-from finekg.core.io import load_event_nodes
-from finekg.core.schema import EventNode, EvidenceSpan, RelationEdge, RelationType
-from finekg.relations.agents import GroundingVerifierAgent
-from finekg.relations.pipeline import MultiAgentRelationConfig, MultiAgentRelationPipeline
+from ekg.agents.protocol import Blackboard, Message
+from ekg.core.eval import consistency_report
+from ekg.core.io import load_event_nodes
+from ekg.core.schema import EventNode, EvidenceSpan, RelationEdge, RelationType
+from ekg.relations.agents import GroundingVerifierAgent
+from ekg.relations.pipeline import MultiAgentRelationConfig, MultiAgentRelationPipeline
 
 
 def test_multiagent_pipeline_builds_consistent_grounded_graph(fixtures_dir) -> None:

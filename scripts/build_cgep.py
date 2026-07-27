@@ -3,7 +3,7 @@
 
 SeDGPL (arXiv:2409.17480) never released its MAVEN build (`MAVENSubWoRe.npy`),
 so its published CGEP-MAVEN numbers are not same-data comparable and the corpus
-must be rebuilt. `finekg.succession.data.cgep` documents the protocol; this
+must be rebuilt. `ekg.succession.data.cgep` documents the protocol; this
 script runs it and prints the acceptance table.
 
     uv run python scripts/build_cgep.py --split train+valid --report-stats
@@ -20,7 +20,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from finekg.succession.data.cgep import CANDIDATE_SET_SIZE, build_cgep, iter_documents
+from ekg.succession.data.cgep import CANDIDATE_SET_SIZE, build_cgep, iter_documents
 
 _PROCESSED = Path("data/processed/maven_ere")
 

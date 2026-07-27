@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.core.eval import conll_coref_f1, mrr_hits, relation_prf
-from finekg.core.schema import RelationEdge, RelationType
+from ekg.core.eval import conll_coref_f1, mrr_hits, relation_prf
+from ekg.core.schema import RelationEdge, RelationType
 
 
 def _temporal(h: str, t: str) -> RelationEdge:

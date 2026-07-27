@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.agents.protocol import Agent, Blackboard, Message, Orchestrator, Stage
+from ekg.agents.protocol import Agent, Blackboard, Message, Orchestrator, Stage
 
 
 class _Proposer(Agent):

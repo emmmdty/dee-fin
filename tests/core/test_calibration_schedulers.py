@@ -12,7 +12,7 @@ import math
 
 import pytest
 
-from finekg.core.calibration import (
+from ekg.core.calibration import (
     AdaptiveConformal,
     RiskControlCalibrator,
     SplitConformal,

@@ -1,13 +1,13 @@
-# Fin-EKG v4 · GPU 服务器运行与同步手册
+# EKG v4 · GPU 服务器运行与同步手册
 
-> 适用于 `gpu-4090:/data/TJK/Fin-EKG`。本手册只覆盖 v4 主线与仍在主干的 Ch4 可靠性模块。
+> 适用于 `gpu-4090:/data/TJK/ekg`。本手册只覆盖 v4 主线与仍在主干的 Ch4 可靠性模块。
 > 旧 temporal GNN、RE-GCN、Path-RL、hybrid 命令已失效；需要复现时从 tag `frozen-tkg-line`
 > 单独建立工作区，不得在当前主干照抄旧命令。
 
 ## 1. 当前状态
 
 - P0 主数据已就位；当前关键路径是 Phase A 判别式关系抽取器。
-- `src/finekg/relations/extractor/supervised.py` 尚未实现，因此**当前没有可启动的 Phase A 长训练命令**。
+- `src/ekg/relations/extractor/supervised.py` 尚未实现，因此**当前没有可启动的 Phase A 长训练命令**。
 - 现有 `scripts/train_relation_extractor.py` 是旧生成式 Qwen LoRA 基线，不是 Phase A 的判别式模型；
   不得把重跑该脚本写成 v4 Phase A 进展。
 - 已有 GPU 证据：SeDGPL 基线、M1/M2 A/B、M3a risk-coverage 和受控 cross-stage 排名。
@@ -15,8 +15,8 @@
 
 ## 2. 环境
 
-- SSH：`ssh gpu-4090`；远端根：`/data/TJK/Fin-EKG`。
-- uv：`/home/TJK/.local/bin/uv`；项目 Python：`/data/TJK/Fin-EKG/.venv/bin/python`。
+- SSH：`ssh gpu-4090`；远端根：`/data/TJK/ekg`。
+- uv：`/home/TJK/.local/bin/uv`；项目 Python：`/data/TJK/ekg/.venv/bin/python`。
 - 非交互 SSH 的 `python`、`uv`、`jq`、`rg`、`tmux` 可能不在 PATH；用绝对路径或 `bash -lc`。
 - card 3 故障，需 NVML shim；card 0/2 常被占，优先 card 1，但**每次启动前必须重新运行
   `nvidia-smi` 原子核卡**。
@@ -35,7 +35,7 @@ GitHub 与 WSL 以同一 Git commit 为代码权威；4090 不是 Git 仓库，�
 推荐同步形状：
 
 ```bash
-git ls-files -z | rsync -azR --from0 --files-from=- ./ gpu-4090:/data/TJK/Fin-EKG/
+git ls-files -z | rsync -azR --from0 --files-from=- ./ gpu-4090:/data/TJK/ekg/
 ```
 
 若只同步本次提交，可把 `git diff-tree --no-commit-id --name-only -r HEAD` 的结果写入临时 file list，
@@ -73,7 +73,7 @@ Phase A 实现完成后，具体命令必须从实际 CLI `--help` 和配置生�
 本地 CPU 可先跑数据和 frequency/random 路径；SeDGPL 才需要 GPU：
 
 ```bash
-cd /data/TJK/Fin-EKG
+cd /data/TJK/ekg
 CUDA_VISIBLE_DEVICES=<空卡> HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
   /home/TJK/.local/bin/uv run --extra llm python -u scripts/evaluate_cgep.py \
   --dataset maven --predictor sedgpl --model-path <roberta-base-path> --epochs 10 \

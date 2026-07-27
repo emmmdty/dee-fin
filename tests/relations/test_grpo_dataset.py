@@ -6,13 +6,13 @@ import json
 
 import pytest
 
-from finekg.core.schema import EventNode, RelationEdge, RelationType
-from finekg.relations.data import load_maven_ere
-from finekg.relations.data.maven_ere import RelationDocument
-from finekg.relations.extractor.llm import build_relation_prompt
-from finekg.relations.rl.dataset import build_grpo_dataset, to_rows, window_document
-from finekg.relations.rl.rewards import build_relation_reward
-from finekg.relations.rl.trl_adapter import TrlRewardAdapter
+from ekg.core.schema import EventNode, RelationEdge, RelationType
+from ekg.relations.data import load_maven_ere
+from ekg.relations.data.maven_ere import RelationDocument
+from ekg.relations.extractor.llm import build_relation_prompt
+from ekg.relations.rl.dataset import build_grpo_dataset, to_rows, window_document
+from ekg.relations.rl.rewards import build_relation_reward
+from ekg.relations.rl.trl_adapter import TrlRewardAdapter
 
 
 def _big_doc(n_nodes: int = 30) -> RelationDocument:

@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.succession.data.cgep import CgepInstance, CgepNode, token_span
-from finekg.succession.encode import (
+from ekg.succession.data.cgep import CgepInstance, CgepNode, token_span
+from ekg.succession.encode import (
     encode_instance,
     event_token_nodes,
     replace_mention,
 )
-from finekg.succession.linearize import EventVocabulary, linearize, select_nearest_edges
+from ekg.succession.linearize import EventVocabulary, linearize, select_nearest_edges
 
 
 def _node(i: int, trigger: str, sentence: str) -> CgepNode:
@@ -185,7 +185,7 @@ def test_encode_instance_flags_events_that_reach_the_anchor():
     # M2: reach_anchor is 1 for events upstream of the anchor, 0 downstream.
     # 0 -> 1(anchor) -> 2 branches off, and 1 -> 3(gold/mask): node 2 is
     # downstream of the anchor, so its token must be flagged 0.
-    from finekg.succession.structure import event_reach_anchor
+    from ekg.succession.structure import event_reach_anchor
 
     nodes = (
         _node(0, "spark", "a spark began ."),

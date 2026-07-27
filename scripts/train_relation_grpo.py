@@ -26,12 +26,12 @@ import argparse
 import json
 from pathlib import Path
 
-from finekg.core.config import load_config
-from finekg.relations.data import load_ccks_causal, load_maven_ere
-from finekg.relations.rl.dataset import build_grpo_dataset, to_rows
-from finekg.relations.rl.rewards import build_relation_reward
-from finekg.relations.rl.trl_adapter import TrlRewardAdapter
-from finekg.rl.curriculum import phase_indices, phases_from_config, seeded_order
+from ekg.core.config import load_config
+from ekg.relations.data import load_ccks_causal, load_maven_ere
+from ekg.relations.rl.dataset import build_grpo_dataset, to_rows
+from ekg.relations.rl.rewards import build_relation_reward
+from ekg.relations.rl.trl_adapter import TrlRewardAdapter
+from ekg.rl.curriculum import phase_indices, phases_from_config, seeded_order
 
 
 def _load_docs(loader: str, path: Path) -> list:
@@ -84,12 +84,12 @@ def main() -> int:
     seed = int(section.get("grpo", {}).get("seed", 42))
 
     # Heavy stack stays behind the entry point.
-    from finekg.relations.rl.trainer import build_grpo_trainer
+    from ekg.relations.rl.trainer import build_grpo_trainer
 
     adapter_path = section.get("sft_adapter_path") or None
     args.output.mkdir(parents=True, exist_ok=True)
     for i, (phase, bucket) in enumerate(zip(phases, buckets, strict=True)):
-        phase_dir = args.output / f"phase{i}"
+        phase_dir = args.output / f"phase{i}_maxdiff{phase.max_difficulty:g}"
         if i < args.resume_from_phase:
             # Already trained in a previous invocation: chain the warm-start from its
             # saved adapter so phase N resumes from phase N-1 without redoing phase 0.
@@ -129,8 +129,8 @@ def main() -> int:
             client.close_communicator()
         adapter_path = str(phase_dir)
         # Phase-local means (not cumulative across phases) plus the windowed
-        # per-component curve — the reward-hacking watch and the W3-4 gate.
-        (args.output / f"reward_means_phase{i}.json").write_text(
+        # per-component curve — the reward-hacking watch and the exit gate.
+        (args.output / f"reward_means_phase{i}_maxdiff{phase.max_difficulty:g}.json").write_text(
             json.dumps(reward_fn.phase_means(), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )

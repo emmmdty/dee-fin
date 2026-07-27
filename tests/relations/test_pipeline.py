@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.core.eval import consistency_report
-from finekg.core.io import load_event_nodes
-from finekg.core.schema import EventGraph, EventNode, RelationEdge, RelationType
-from finekg.relations import RelationPipeline
-from finekg.relations.consistency import GreedyConsistencySolver, consistency_solvers
-from finekg.relations.extractor.heuristic import HeuristicRelationExtractor
+from ekg.core.eval import consistency_report
+from ekg.core.io import load_event_nodes
+from ekg.core.schema import EventGraph, EventNode, RelationEdge, RelationType
+from ekg.relations import RelationPipeline
+from ekg.relations.consistency import GreedyConsistencySolver, consistency_solvers
+from ekg.relations.extractor.heuristic import HeuristicRelationExtractor
 
 
 def _dated(event_id: str, subject: str, day: str) -> EventNode:
@@ -128,7 +128,7 @@ def test_identity_solver_is_noop_ablation() -> None:
 def test_heuristic_causal_edges_are_input_order_invariant() -> None:
     """Tied/missing time anchors carry no order: the cue table must decide the
     direction, so reversing the node list cannot change the emitted edge set."""
-    from finekg.relations.extractor.heuristic import HeuristicRelationExtractor
+    from ekg.relations.extractor.heuristic import HeuristicRelationExtractor
 
     pledge = EventNode(event_id="x1", event_type="EquityPledge", doc_id="d", subject="ACME")
     freeze = EventNode(event_id="x2", event_type="EquityFreeze", doc_id="d", subject="ACME")

@@ -32,10 +32,10 @@ import random
 from pathlib import Path
 from statistics import mean, pstdev
 
-from finekg.succession.data.cgep import CgepInstance, build_cgep, iter_documents
-from finekg.succession.data.esc import load_cgep_esc, topic_folds
-from finekg.succession.linearize import EDGE_BUDGET
-from finekg.succession.predictor import evaluate, successor_predictors
+from ekg.succession.data.cgep import CgepInstance, build_cgep, iter_documents
+from ekg.succession.data.esc import load_cgep_esc, topic_folds
+from ekg.succession.linearize import EDGE_BUDGET
+from ekg.succession.predictor import evaluate, successor_predictors
 
 _ESC = Path("data/raw/sedgpl_esc/ESCSubWoRe.npy")
 _MAVEN = Path("data/processed/maven_ere")
@@ -99,8 +99,8 @@ def _build(args, train: list[CgepInstance], test: list[CgepInstance]):
         return successor_predictors.create(args.predictor)
     if not args.model_path:
         raise SystemExit("--predictor sedgpl needs --model-path")
-    import finekg.succession.sedgpl  # noqa: F401 - registers "sedgpl"
-    from finekg.succession.linearize import EventVocabulary
+    import ekg.succession.sedgpl  # noqa: F401 - registers "sedgpl"
+    from ekg.succession.linearize import EventVocabulary
 
     return successor_predictors.create(
         "sedgpl", model_path=args.model_path,
@@ -124,12 +124,12 @@ def main() -> int:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--lr", type=float, default=1e-6, help="run.sh uses 1e-6 and 5e-6")
     parser.add_argument("--edge-selector", default="sedgpl", choices=("sedgpl", "distance"),
-                        help="M1: 'distance' keeps the edges nearest the query; "
-                             "'sedgpl' (default) slices the stored head")
+                        help="risk-aware edge budget: 'distance' keeps the edges "
+                             "nearest the query; 'sedgpl' (default) slices the stored head")
     parser.add_argument("--max-edges", type=int, default=EDGE_BUDGET,
                         help="linearisation budget (SeDGPL uses 20)")
     parser.add_argument("--structure-encoding", action="store_true",
-                        help="M2: add EeCE's fourth stream (reach-anchor bit); "
+                        help="structural signal: add EeCE's fourth stream (reach-anchor bit); "
                              "off by default keeps the baseline byte-identical")
     parser.add_argument("--split-mode", default="topic", choices=("topic", "document"),
                         help="document folds leak a topic's story across the split")

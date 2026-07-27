@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.core.registry import Registry
-from finekg.rl.reward import CompositeReward, RewardFn, WeightedComponent, build_composite
+from ekg.core.registry import Registry
+from ekg.rl.reward import CompositeReward, RewardFn, WeightedComponent, build_composite
 
 
 def _component(value: float) -> RewardFn:

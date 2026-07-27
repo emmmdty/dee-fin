@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from finekg.core.schema import EventNode, EvidenceSpan, RelationEdge, RelationType
-from finekg.relations.extractor.base import ExtractionContext
-from finekg.relations.grounding import ground_relations
+from ekg.core.schema import EventNode, EvidenceSpan, RelationEdge, RelationType
+from ekg.relations.extractor.base import ExtractionContext
+from ekg.relations.grounding import ground_relations
 
 
 def _nodes() -> list[EventNode]:

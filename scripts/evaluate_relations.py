@@ -15,14 +15,14 @@ import argparse
 import json
 from pathlib import Path
 
-from finekg.core.config import load_config
-from finekg.core.eval import conll_coref_f1, consistency_report, relation_prf
-from finekg.core.graph import coreference_clusters
-from finekg.core.schema import EventGraph
-from finekg.relations import RelationPipeline, RelationPipelineConfig
-from finekg.relations.admission import admission_report, edge_admission, gold_edge_scores
-from finekg.relations.data import load_ccks_causal, load_maven_ere
-from finekg.relations.extractor.base import ExtractionContext
+from ekg.core.config import load_config
+from ekg.core.eval import conll_coref_f1, consistency_report, relation_prf
+from ekg.core.graph import coreference_clusters
+from ekg.core.schema import EventGraph
+from ekg.relations import RelationPipeline, RelationPipelineConfig
+from ekg.relations.admission import admission_report, edge_admission, gold_edge_scores
+from ekg.relations.data import load_ccks_causal, load_maven_ere
+from ekg.relations.extractor.base import ExtractionContext
 
 LOADERS = {"maven_ere": load_maven_ere, "ccks_causal": load_ccks_causal}
 

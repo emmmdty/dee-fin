@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.core.eval.faithfulness import (
+from ekg.core.eval.faithfulness import (
     aurc,
     expected_calibration_error,
     intervention_faithfulness,

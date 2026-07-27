@@ -8,9 +8,9 @@ plus coreference CoNLL locally — no model, no GPU. Gold is reloaded from the
 original dataset, so changing the scoring rule never requires re-running the LLM.
 
     uv run python scripts/recompute_relation_metrics.py \
-        --predictions runs/pred_phase2.jsonl \
+        --predictions runs/relations/valid_predictions.jsonl \
         --gold-path data/processed/maven_ere/valid.jsonl \
-        --output runs/eval_phase2_recomputed.json
+        --output runs/relations/pair_eval_recomputed.json
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ import argparse
 import json
 from pathlib import Path
 
-from finekg.core.eval import conll_coref_f1, relation_prf
-from finekg.core.graph import coreference_clusters
-from finekg.core.schema import EventGraph, RelationEdge, RelationType
-from finekg.relations.data import load_ccks_causal, load_maven_ere
+from ekg.core.eval import conll_coref_f1, relation_prf
+from ekg.core.graph import coreference_clusters
+from ekg.core.schema import EventGraph, RelationEdge, RelationType
+from ekg.relations.data import load_ccks_causal, load_maven_ere
 
 LOADERS = {"maven_ere": load_maven_ere, "ccks_causal": load_ccks_causal}
 

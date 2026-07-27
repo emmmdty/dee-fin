@@ -8,7 +8,7 @@ import math
 
 import pytest
 
-from finekg.core.calibration import (
+from ekg.core.calibration import (
     average_set_size,
     conformal_quantile,
     empirical_coverage,

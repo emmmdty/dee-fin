@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.core.schema import EventNode, EvidenceSpan, RelationEdge, RelationType
-from finekg.relations.data.maven_ere import RelationDocument, load_maven_ere
-from finekg.succession.data.cgep import build_cgep, extract_ecgs, query_edge_indices
+from ekg.core.schema import EventNode, EvidenceSpan, RelationEdge, RelationType
+from ekg.relations.data.maven_ere import RelationDocument, load_maven_ere
+from ekg.succession.data.cgep import build_cgep, extract_ecgs, query_edge_indices
 
 
 def _node(doc_id: str, key: str, trigger: str, sent_id: int) -> EventNode:

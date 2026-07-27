@@ -13,7 +13,7 @@ import math
 import numpy as np
 import pytest
 
-from finekg.core.calibration.propagation import (
+from ekg.core.calibration.propagation import (
     BudgetSplit,
     allocate_budget,
     allocate_budget_conditional,

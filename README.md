@@ -1,6 +1,6 @@
-# Fin-EKG — 可信事件图谱构建与可靠应用
+# EKG — 可信事件图谱构建与可靠应用
 
-Fin-EKG 从文本构建可验证的事件图谱，并研究构建误差如何影响下游推理。节点、关系边、修复动作和
+EKG 从文本构建可验证的事件图谱，并研究构建误差如何影响下游推理。节点、关系边、修复动作和
 预测都应能回指原文证据或明确的计算轨迹。
 
 > 当前唯一主线是 **v4（2026-07-21）**：围绕事件图谱的身份可信、结构可信、事实可信和传播可信，
@@ -11,17 +11,18 @@ Fin-EKG 从文本构建可验证的事件图谱，并研究构建误差如何影
 
 | 章 | 可信维度 | 研究任务 | 主数据 | 当前代码域 |
 |---|---|---|---|---|
-| Ch1 | 身份可信 | 证据与不确定性感知的规范事件节点 | MAVEN、MAVEN-Arg、MAVEN-ERE coref | `finekg.core` + 待建节点规范化模块 |
-| Ch2 | 结构可信 | 风险受控的多关系边、全局一致性与可追溯修复 | MAVEN-ERE | `finekg.relations` |
+| Ch1 | 身份可信 | 证据与不确定性感知的规范事件节点 | MAVEN、MAVEN-Arg、MAVEN-ERE coref | `ekg.core` + 待建节点规范化模块 |
+| Ch2 | 结构可信 | 风险受控的多关系边、全局一致性与可追溯修复 | MAVEN-ERE | `ekg.relations` |
 | Ch3 | 事实可信 | 构建图上的事件事实性检测与图净化 | MAVEN-FACT | 待建 factuality 模块 + `core.calibration` |
-| Ch4 | 传播可信/可用 | 构建误差传播、下游门控闭环修复与可靠后继预测 | CGEP-MAVEN、ESC | `finekg.succession` + `finekg.agents` |
+| Ch4 | 传播可信/可用 | 构建误差传播、下游门控闭环修复与可靠后继预测 | CGEP-MAVEN、ESC | `ekg.succession` + `ekg.agents` |
 
 全篇 headline 是 **面向下游的构建误差预算 + 下游验证的闭环修复**：只在后继预测目标改善时接受
 图编辑。既有 SeDGPL、M1/M2、选择性 conformal 和受控 cross-stage 扫描是 Ch4 的可靠性模块，
 不是独立主线。
 
-SARGE 保留在 `external/sarge/`，作为金融应用层的事件抽取器和历史研究资产；它不再等同于 v4 Ch1。
-旧实体中心金融 TKG、RE-GCN、Path-RL 和 hybrid 已移出主干，保存在 tag `frozen-tkg-line`。
+SARGE（中文金融文档级抽取）已于 **2026-07-27 移出主干**——v4 四章无一依赖它，留在仓内只增加
+检索与上下文噪声；结果快照见 [`docs/archive/SARGE_RESULTS_SNAPSHOT.md`](docs/archive/SARGE_RESULTS_SNAPSHOT.md)，源仓独立维护。
+旧实体中心金融 TKG、RE-GCN、Path-RL 和 hybrid 同样已移出主干，保存在 tag `frozen-tkg-line`。
 
 ## 当前执行位置
 
@@ -42,7 +43,7 @@ SARGE 保留在 `external/sarge/`，作为金融应用层的事件抽取器和�
 ## 目录
 
 ```text
-src/finekg/
+src/ekg/
 ├── core/         schema、I/O、图算法、registry、calibration、通用评测
 ├── relations/    关系抽取、grounding、一致性、CRC 准入、旧 GRPO 基线
 ├── succession/   CGEP 数据、SeDGPL、M1/M2、选择性预测、cross-stage
@@ -56,7 +57,7 @@ src/finekg/
 uv sync --extra dev
 uv run pytest
 uv run ruff check src tests scripts
-uv run finekg-smoke
+uv run ekg-smoke
 ```
 
 GPU 只在 `gpu-4090` 执行；当前可运行任务、同步方法和启动约束见

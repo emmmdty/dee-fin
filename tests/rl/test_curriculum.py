@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.rl.curriculum import (
+from ekg.rl.curriculum import (
     CurriculumPhase,
     phase_indices,
     phases_from_config,

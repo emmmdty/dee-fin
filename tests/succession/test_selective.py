@@ -16,14 +16,14 @@ import math
 import random
 from collections.abc import Sequence
 
-from finekg.succession.data.cgep import CgepInstance, CgepNode
-from finekg.succession.metrics import sedgpl_rank
-from finekg.succession.predictor import (
+from ekg.succession.data.cgep import CgepInstance, CgepNode
+from ekg.succession.metrics import sedgpl_rank
+from ekg.succession.predictor import (
     RandomSuccessorPredictor,
     SuccessorPredictor,
     UnscorableInstance,
 )
-from finekg.succession.selective import cgep_gold_ranks, selective_report
+from ekg.succession.selective import cgep_gold_ranks, selective_report
 
 
 def _instance(i: int, k: int, rng: random.Random) -> CgepInstance:

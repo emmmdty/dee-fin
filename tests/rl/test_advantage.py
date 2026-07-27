@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.rl.advantage import group_relative_advantage
+from ekg.rl.advantage import group_relative_advantage
 
 
 def test_matches_hand_computed_values() -> None:

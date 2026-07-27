@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.succession.metrics import cgep_metrics, sedgpl_rank, strict_rank
+from ekg.succession.metrics import cgep_metrics, sedgpl_rank, strict_rank
 
 
 def test_rank_counts_strictly_better_candidates():

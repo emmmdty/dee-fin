@@ -6,9 +6,9 @@ Checked deterministically on CPU.
 
 from __future__ import annotations
 
-from finekg.core.eval.consistency import consistency_report
-from finekg.core.schema import EventGraph, EventNode, RelationEdge, RelationType
-from finekg.relations.consistency import (
+from ekg.core.eval.consistency import consistency_report
+from ekg.core.schema import EventGraph, EventNode, RelationEdge, RelationType
+from ekg.relations.consistency import (
     GreedyConsistencySolver,
     RepairTrace,
     consistency_solvers,

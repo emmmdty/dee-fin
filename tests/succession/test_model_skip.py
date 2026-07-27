@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.succession.model import TORCH_AVAILABLE, build_sedgpl
+from ekg.succession.model import TORCH_AVAILABLE, build_sedgpl
 
 
 @pytest.mark.skipif(TORCH_AVAILABLE, reason="torch is installed")
@@ -17,7 +17,7 @@ def test_building_without_torch_names_the_extra_to_install():
 def test_gated_fusion_interpolates_and_is_not_a_residual():
     import torch
 
-    from finekg.succession.model import GatedFusion
+    from ekg.succession.model import GatedFusion
 
     fusion = GatedFusion(4)
     x = torch.ones(1, 4)
@@ -34,7 +34,7 @@ def test_gated_fusion_residual_is_identity_when_the_added_stream_is_zero():
     # of the gate, which is what lets a zero-init structural stream start clean.
     import torch
 
-    from finekg.succession.model import GatedFusion
+    from ekg.succession.model import GatedFusion
 
     fusion = GatedFusion(4)
     x = torch.randn(2, 4)
@@ -45,7 +45,7 @@ def test_gated_fusion_residual_is_identity_when_the_added_stream_is_zero():
 def test_eece_stacks_two_gates_over_three_streams():
     import torch
 
-    from finekg.succession.model import EeCE
+    from ekg.succession.model import EeCE
 
     eece = EeCE(hidden_size=8)
     out = eece(torch.randn(3, 8), torch.randn(3, 8), torch.randn(3, 8))
@@ -58,7 +58,7 @@ def test_reach_embedding_is_zero_initialised():
     # swamp the fused event embedding (norm ~8) and corrupt training. Zero-init.
     import torch
 
-    from finekg.succession.model import EeCE
+    from ekg.succession.model import EeCE
 
     eece = EeCE(hidden_size=8, enable_structure=True)
     assert torch.count_nonzero(eece.reach_embed.weight) == 0
@@ -70,7 +70,7 @@ def test_eece_third_gate_is_identity_at_init():
     # starts identical to the two-gate baseline and can only learn to add signal.
     import torch
 
-    from finekg.succession.model import EeCE
+    from ekg.succession.model import EeCE
 
     eece = EeCE(hidden_size=8, enable_structure=True)
     inst, sent, typ = torch.randn(3, 8), torch.randn(3, 8), torch.randn(3, 8)
@@ -86,7 +86,7 @@ def test_eece_third_gate_adds_structure_once_the_embedding_is_learned():
     # residual and the event representation changes.
     import torch
 
-    from finekg.succession.model import EeCE
+    from ekg.succession.model import EeCE
 
     eece = EeCE(hidden_size=8, enable_structure=True)
     eece.reach_embed.weight.data.normal_()
@@ -101,7 +101,7 @@ def test_eece_without_structure_is_exactly_the_two_gate_baseline():
     # Byte-identical baseline: no third gate is built and none is applied.
     import torch
 
-    from finekg.succession.model import EeCE
+    from ekg.succession.model import EeCE
 
     eece = EeCE(hidden_size=8, enable_structure=False)
     inst, sent, typ = torch.randn(3, 8), torch.randn(3, 8), torch.randn(3, 8)
@@ -114,7 +114,7 @@ def test_eece_without_structure_is_exactly_the_two_gate_baseline():
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="needs torch")
 def test_reach_embedding_is_binary():
-    from finekg.succession.model import EeCE
+    from ekg.succession.model import EeCE
 
     eece = EeCE(hidden_size=8, enable_structure=True)
     assert eece.reach_embed.num_embeddings == 2
@@ -123,8 +123,8 @@ def test_reach_embedding_is_binary():
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="needs torch")
 def test_sedgpl_predictor_carries_the_structure_flag():
     # Selected by config like the edge selector; baseline stays the default (off).
-    from finekg.succession.linearize import EventVocabulary
-    from finekg.succession.sedgpl import SeDGPLPredictor
+    from ekg.succession.linearize import EventVocabulary
+    from ekg.succession.sedgpl import SeDGPLPredictor
 
     vocab = EventVocabulary.build([])
     assert SeDGPLPredictor("m", vocabulary=vocab).enable_structure is False
@@ -136,7 +136,7 @@ def test_sedgpl_predictor_carries_the_structure_flag():
 def test_scep_similarity_loss_falls_as_the_anchor_approaches_gold():
     import torch
 
-    from finekg.succession.model import ScEP
+    from ekg.succession.model import ScEP
 
     scep = ScEP()
     candidates = torch.eye(4)
@@ -148,12 +148,12 @@ def test_scep_similarity_loss_falls_as_the_anchor_approaches_gold():
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="needs torch")
 def test_sedgpl_predictor_resolves_the_named_edge_selector():
     # M1 is selected by config name, and the baseline stays the default.
-    from finekg.succession.linearize import (
+    from ekg.succession.linearize import (
         EventVocabulary,
         select_nearest_edges,
         truncate_edges,
     )
-    from finekg.succession.sedgpl import SeDGPLPredictor
+    from ekg.succession.sedgpl import SeDGPLPredictor
 
     vocab = EventVocabulary.build([])
     assert SeDGPLPredictor("m", vocabulary=vocab)._select is truncate_edges

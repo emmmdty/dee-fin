@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from finekg.core.schema import EventGraph, EventNode, RelationEdge, RelationType
-from finekg.relations.admission import (
+from ekg.core.schema import EventGraph, EventNode, RelationEdge, RelationType
+from ekg.relations.admission import (
     CRCEdgeAdmission,
     PassthroughAdmission,
     admission_report,

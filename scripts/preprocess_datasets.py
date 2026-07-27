@@ -8,11 +8,9 @@ only data/processed/{dataset}.
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
 import json
 import random
-import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -363,7 +361,7 @@ def prepare_modafact(smoke_n: int = 20) -> dict[str, Any]:
         out / "manifest.json",
         {
             "dataset": "modafact",
-            "task": "Italian event factuality + modality (Ch3 cross-lingual robustness)",
+            "task": "Italian event factuality + modality (cross-lingual robustness)",
             "source": "ModaFact, COLING 2025; HuggingFace dhfbk/modafact-ita",
             "license": "CC-BY-SA-4.0",
             "language": "it",
@@ -422,7 +420,7 @@ def prepare_it_happened(version: str = "07092017") -> dict[str, int]:
         out / "manifest.json",
         {
             "dataset": "it_happened",
-            "task": "event factuality (UDS-IH2 signed [-3,3]); Ch3 English 2nd (2018 benchmark)",
+            "task": "event factuality (UDS-IH2 signed [-3,3]); English 2nd (2018 benchmark)",
             "source": "UDS It-Happened v2 (Rudinger NAACL 2018); UD English Web Treebank 1.2",
             "version": version,
             "raw_dir": str(raw),
@@ -443,7 +441,7 @@ def _count_json_list(path: Path) -> int:
 
 
 def prepare_docee() -> dict[str, Any]:
-    """DocEE document-level event extraction (en normal/cross-domain + zh). Ch1 generalization."""
+    """DocEE document-level event extraction (en normal/cross-domain + zh); node generalization."""
     raw = _raw_dir("docee")
     out = _processed_dir("docee")
     _reset_dir(out)
@@ -484,7 +482,7 @@ def prepare_docee() -> dict[str, Any]:
         out / "manifest.json",
         {
             "dataset": "docee",
-            "task": "document-level event extraction (classification + args); Ch1 generalization",
+            "task": "document-level event extraction (classification + args); node generalization",
             "source": "DocEE, NAACL 2022; github tongmeihan1995/DocEE",
             "raw_dir": str(raw),
             "processed_dir": str(out),
@@ -550,261 +548,6 @@ def prepare_tkg_splits(name: str, smoke_n: int = 1000, tiny_n: int = 200) -> dic
     return {split: counts[split] for split in ("train", "valid", "test")}
 
 
-def prepare_astock() -> dict[str, int]:
-    raw = _raw_dir("astock") / "Astock-main" / "data"
-    out = _processed_dir("astock")
-    _reset_dir(out)
-    counts: dict[str, int] = {}
-    schema: dict[str, list[str]] = {}
-
-    # Astock text fields contain embedded newlines/tabs and are CSV-quoted, so
-    # records must be counted with a quote-aware reader, not by physical lines.
-    csv.field_size_limit(10**7)
-    for split in ("train", "val", "test", "ood"):
-        src = raw / f"{split}.csv"
-        if not src.exists():
-            raise FileNotFoundError(src)
-        dst = out / f"{split}.tsv"
-        shutil.copyfile(src, dst)
-        with src.open(encoding="utf-8", newline="") as fh:
-            reader = csv.reader(fh, delimiter="\t")
-            header = next(reader)
-            counts[split] = sum(1 for _ in reader)
-        schema[split] = header
-
-    _write_json(
-        out / "manifest.json",
-        {
-            "dataset": "astock",
-            "task": "stock-specific news movement/trading prediction",
-            "source": "Astock, FinNLP 2022",
-            "raw_dir": str(raw),
-            "processed_dir": str(out),
-            "official_split_note": "Official train/val/test/ood files are preserved.",
-            "splits": {split: {"records": count} for split, count in counts.items()},
-            "schema": schema,
-        },
-    )
-    print(
-        f"[astock] train={counts['train']} val={counts['val']} "
-        f"test={counts['test']} ood={counts['ood']}"
-    )
-    return counts
-
-
-def prepare_cmin_cn() -> dict[str, Any]:
-    raw = _raw_dir("cmin_cn") / "CMIN-CN"
-    out = _processed_dir("cmin_cn")
-    _reset_dir(out)
-
-    price_dir = raw / "price" / "preprocessed"
-    news_dir = raw / "news" / "preprocessed"
-    if not price_dir.exists() or not news_dir.exists():
-        raise FileNotFoundError(f"expected {price_dir} and {news_dir}")
-
-    price_files = sorted(price_dir.glob("*.txt"))
-    news_stock_dirs = sorted(path for path in news_dir.iterdir() if path.is_dir())
-    rows = []
-    news_date_files = 0
-    for stock_dir in news_stock_dirs:
-        n_dates = sum(1 for path in stock_dir.iterdir() if path.is_file())
-        news_date_files += n_dates
-        has_price = int((price_dir / f"{stock_dir.name}.txt").exists())
-        rows.append(f"{stock_dir.name}\t{has_price}\t{n_dates}")
-
-    _write_lines(out / "stocks.tsv", ["stock\thas_price\tnews_date_files", *rows])
-    manifest = {
-        "dataset": "cmin_cn",
-        "task": "Chinese stock movement prediction with news and prices",
-        "source": "CMIN-CN, ACL 2023",
-        "raw_dir": str(raw),
-        "processed_dir": str(out),
-        "official_split_note": (
-            "Original release is organized by stock/date; no project loader is wired yet."
-        ),
-        "price_files": len(price_files),
-        "news_stock_dirs": len(news_stock_dirs),
-        "news_date_files": news_date_files,
-        "processed_files": {"stocks": "stocks.tsv"},
-    }
-    _write_json(out / "manifest.json", manifest)
-    print(
-        f"[cmin_cn] price_files={manifest['price_files']} "
-        f"news_stock_dirs={manifest['news_stock_dirs']} "
-        f"news_date_files={manifest['news_date_files']}"
-    )
-    return manifest
-
-
-_ISO_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
-
-
-def _detokenize_cjk(text: str) -> str:
-    """Remove tokenizer spaces between CJK characters/punctuation."""
-    cjk = "一-鿿，。；：、！？（）"
-    return re.sub(rf"(?<=[{cjk}])\s+(?=[{cjk}])", "", text)
-
-
-def _cell(row: list[str], col: dict[str, int], name: str) -> str:
-    idx = col.get(name)
-    return row[idx].strip() if idx is not None and idx < len(row) else ""
-
-
-def export_astock_sarge_input(
-    splits: tuple[str, ...] = ("train", "val", "test", "ood"),
-    max_docs: int | None = None,
-) -> dict[str, int]:
-    """Astock news -> the SARGE inference-input JSONL (closed-loop entry point).
-
-    One record per news item: ``{"doc_id", "text", "date", "stock",
-    "stock_name", "split", "label"}``. The same file doubles as the
-    `sarge_to_event_nodes.py --meta` sidecar (publication date + stock code per
-    doc_id anchor the graph timeline). Astock stores the stock code as a
-    de-zero-padded int and quotes text fields with embedded newlines, so rows
-    are read quote-aware and codes re-padded; rows without a parseable ISO date
-    or any text are dropped.
-    """
-    src_dir = _processed_dir("astock")
-    csv.field_size_limit(10**7)
-    records: list[dict[str, str]] = []
-    counts: dict[str, int] = {}
-    done = False
-    for split in splits:
-        path = src_dir / f"{split}.tsv"
-        if not path.exists():
-            raise FileNotFoundError(path)
-        kept = 0
-        with path.open(encoding="utf-8", newline="") as fh:
-            reader = csv.reader(fh, delimiter="\t")
-            header = next(reader)
-            col = {name: idx for idx, name in enumerate(header)}
-            for i, row in enumerate(reader):
-                date = _cell(row, col, "DATE")[:10]
-                if not _ISO_DAY.fullmatch(date):
-                    continue
-                text = _cell(row, col, "text_a")
-                if not text:
-                    text = "。".join(
-                        part
-                        for part in (_cell(row, col, "TITLE"), _cell(row, col, "DESCRIPTION"))
-                        if part
-                    )
-                if not text:
-                    continue
-                code = _cell(row, col, "CODE")
-                records.append(
-                    {
-                        "doc_id": f"astock-{split}-{i:06d}",
-                        "text": text,
-                        "date": date,
-                        "stock": code.zfill(6) if code.isdigit() else code,
-                        "stock_name": _cell(row, col, "NAME"),
-                        "split": split,
-                        "label": _cell(row, col, "label"),
-                    }
-                )
-                kept += 1
-                if max_docs is not None and len(records) >= max_docs:
-                    done = True
-                    break
-        counts[split] = kept
-        if done:
-            break
-
-    out = src_dir / "sarge_input.jsonl"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(
-        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records), encoding="utf-8"
-    )
-    print(f"[astock] sarge_input: {len(records)} docs -> {_project_path(out)} ({counts})")
-    return counts
-
-
-def export_cmin_cn_sarge_input(
-    max_docs: int | None = None, max_headlines: int = 20
-) -> dict[str, Any]:
-    """CMIN-CN raw news -> SARGE inference-input JSONL (one doc per stock-day).
-
-    Raw layout is ``news/preprocessed/<stock>/<YYYY-MM-DD>`` with one tokenized
-    headline per line; tokenizer spaces between CJK characters are removed and
-    up to ``max_headlines`` headlines join into one document. Skips gracefully
-    when the raw release is absent (mirrors `prepare_event_graph_zh`), so the
-    Astock-first closed loop does not depend on this download.
-    """
-    news_dir = _raw_dir("cmin_cn") / "CMIN-CN" / "news" / "preprocessed"
-    if not news_dir.exists():
-        print("[cmin_cn] raw news not found — skipping sarge_input export")
-        return {}
-
-    records: list[dict[str, str]] = []
-    n_stocks = 0
-    done = False
-    for stock_dir in sorted(p for p in news_dir.iterdir() if p.is_dir()):
-        n_stocks += 1
-        for date_file in sorted(p for p in stock_dir.iterdir() if p.is_file()):
-            date = date_file.stem[:10]
-            if not _ISO_DAY.fullmatch(date):
-                continue
-            lines = [
-                line.strip()
-                for line in date_file.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
-            if not lines:
-                continue
-            records.append(
-                {
-                    "doc_id": f"cmin-{stock_dir.name}-{date}",
-                    "text": "；".join(_detokenize_cjk(line) for line in lines[:max_headlines]),
-                    "date": date,
-                    "stock": stock_dir.name,
-                    "split": "all",
-                }
-            )
-            if max_docs is not None and len(records) >= max_docs:
-                done = True
-                break
-        if done:
-            break
-
-    out = _processed_dir("cmin_cn") / "sarge_input.jsonl"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(
-        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records), encoding="utf-8"
-    )
-    print(
-        f"[cmin_cn] sarge_input: {len(records)} docs from {n_stocks} stocks "
-        f"-> {_project_path(out)}"
-    )
-    return {"docs": len(records), "stocks": n_stocks}
-
-
-def prepare_event_graph_zh() -> dict[str, Any] | None:
-    candidates = [
-        RAW_ROOT / "event_graph_zh" / "event_graph.json",
-        DATA_ROOT / "event_graph_zh" / "event_graph.json",
-    ]
-    src = next((path for path in candidates if path.exists()), None)
-    if src is None:
-        print("[event_graph_zh] no event_graph.json found — skipping")
-        return None
-
-    out = _processed_dir("event_graph_zh")
-    _reset_dir(out)
-    dst = out / "event_graph.json"
-    shutil.copyfile(src, dst)
-    manifest = {
-        "dataset": "event_graph_zh",
-        "task": "self-built Chinese financial event graph forecasting",
-        "source": _project_path(src),
-        "processed_dir": _project_path(out),
-        "processed_files": {"event_graph": "event_graph.json"},
-    }
-    _write_json(out / "manifest.json", manifest)
-    print(f"[event_graph_zh] copied {src} -> {dst}")
-    return manifest
-
-
 def verify_tsv_order(name: str) -> None:
     tsv = _processed_dir(name) / f"{name}.tsv"
     if not tsv.exists():
@@ -837,25 +580,11 @@ def main() -> int:
     parser.add_argument("--tkg-smoke-n", type=int, default=1000)
     parser.add_argument("--tkg-tiny-n", type=int, default=200)
     parser.add_argument(
-        "--export-sarge-input",
-        choices=("astock", "cmin_cn"),
-        help="only export this dataset's news -> SARGE input JSONL, then exit "
-        "(no other dataset is touched)",
-    )
-    parser.add_argument("--max-docs", type=int, help="cap for --export-sarge-input")
-    parser.add_argument(
         "--only",
         nargs="*",
         help="run only these dataset preparers (default: all), e.g. --only maven_arg maven_fact",
     )
     args = parser.parse_args()
-
-    if args.export_sarge_input == "astock":
-        export_astock_sarge_input(max_docs=args.max_docs)
-        return 0
-    if args.export_sarge_input == "cmin_cn":
-        export_cmin_cn_sarge_input(max_docs=args.max_docs)
-        return 0
 
     only = set(args.only or [])
 
@@ -886,17 +615,6 @@ def main() -> int:
         if want("findkg"):
             prepare_tkg_splits("findkg", smoke_n=args.tkg_smoke_n, tiny_n=args.tkg_tiny_n)
             verify_tsv_order("findkg")
-
-    if want("cmin_cn") or want("astock"):
-        print("── Stock movement datasets ─────────────────")
-        if want("cmin_cn"):
-            prepare_cmin_cn()
-        if want("astock"):
-            prepare_astock()
-
-    if want("event_graph_zh"):
-        print("── Self-built event graph ──────────────────")
-        prepare_event_graph_zh()
 
     return 0
 

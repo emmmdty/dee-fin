@@ -9,7 +9,7 @@ not one. This script measures that with synthetic tensors of the real shapes, so
 we learn the throughput without first writing the batching glue.
 
     uv run --extra llm python scripts/profile_cgep_step.py \
-        --model-path /data/TJK/Fin-EKG/models/roberta-base --steps 12
+        --model-path /data/TJK/ekg/models/roberta-base --steps 12
 
 Reports seconds/instance and the projected wall time of a 5-fold ESC run.
 """
@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 import time
 
-from finekg.succession.model import TORCH_AVAILABLE, build_sedgpl
+from ekg.succession.model import TORCH_AVAILABLE, build_sedgpl
 
 # Measured on data/raw/sedgpl_esc/ESCSubWoRe.npy via `succession.linearize`.
 ESC_INSTANCES = 1192

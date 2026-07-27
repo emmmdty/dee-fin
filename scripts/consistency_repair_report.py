@@ -10,7 +10,8 @@ the raw -> repaired -> repaired+admitted trajectory:
 - **admission**: stratified FNR (marginal / per-family / doc-macro) + admitted
   set size, under a CRC bound calibrated on a held-out split;
 - **reconstructability**: R1 query-edge reachability (the CS-CRP bridge) and R2
-  query-edge fidelity, plus the per-query `reachable` flags Phase E consumes.
+  query-edge fidelity, plus the per-query `reachable` flags the cross-stage
+  sweep consumes.
 
 The checkpoint never comes local: the GPU produces the dump, this runs on CPU.
 
@@ -25,19 +26,19 @@ import argparse
 import json
 from pathlib import Path
 
-from finekg.core.eval.consistency import consistency_report
-from finekg.core.eval.relation import PRF
-from finekg.core.io import read_jsonl
-from finekg.core.schema import EventGraph, RelationEdge, RelationType
-from finekg.relations.admission import (
+from ekg.core.eval.consistency import consistency_report
+from ekg.core.eval.relation import PRF
+from ekg.core.io import read_jsonl
+from ekg.core.schema import EventGraph, RelationEdge, RelationType
+from ekg.relations.admission import (
     edge_admission,
     gold_edge_scores,
     stratified_admission_report,
 )
-from finekg.relations.consistency import RepairTrace, consistency_solvers
-from finekg.relations.data import load_maven_ere
-from finekg.relations.data.maven_ere import RelationDocument
-from finekg.succession.reconstruction import ecg_reachable_flags, reconstruction_report
+from ekg.relations.consistency import RepairTrace, consistency_solvers
+from ekg.relations.data import load_maven_ere
+from ekg.relations.data.maven_ere import RelationDocument
+from ekg.succession.reconstruction import ecg_reachable_flags, reconstruction_report
 
 STAGES = ("raw", "repaired", "repaired_admitted")
 
@@ -188,7 +189,7 @@ def analyze(
         "admission": stratified_admission_report(admitted_pairs),
         "repair_trace_totals": {"dropped": dropped, "added": added},
         "repair_trace_sample": _trace_sample(sample),
-        # The per-query booleans Phase E's CS-CRP (`run_cross_stage`) consumes.
+        # The per-query booleans CS-CRP (`run_cross_stage`) consumes.
         "reachable_flags": reachable_flags,
     }
 

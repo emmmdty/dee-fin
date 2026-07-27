@@ -3,8 +3,8 @@
 
 Turns each document into a supervised example: the all-pairs extraction prompt
 as input, the gold relations (as the JSON the parser expects) as target. Trains
-a LoRA adapter on a Qwen-style base model. This is the retained v3 generative
-baseline, not the v4 Phase A discriminative extractor. The resulting adapter
+a LoRA adapter on a Qwen-style base model. This is the retained generative
+baseline, not the discriminative extractor (`train_supervised_relations.py`). The resulting adapter
 directory goes into `configs/relations/llm_grounded_consistent.yaml`.
 
 GPU + the `llm` extra required:
@@ -20,11 +20,11 @@ import argparse
 import json
 from pathlib import Path
 
-from finekg.core.schema import EventNode
-from finekg.relations.data import load_maven_ere
-from finekg.relations.data.maven_ere import RelationDocument
-from finekg.relations.extractor.llm import build_relation_prompt
-from finekg.relations.rl.dataset import window_document
+from ekg.core.schema import EventNode
+from ekg.relations.data import load_maven_ere
+from ekg.relations.data.maven_ere import RelationDocument
+from ekg.relations.extractor.llm import build_relation_prompt
+from ekg.relations.rl.dataset import window_document
 
 # Keep synthesized quotes within the grounding reward's quote-length cap
 # (configs use max_quote_chars: 60), or SFT would teach quotes the verifier
